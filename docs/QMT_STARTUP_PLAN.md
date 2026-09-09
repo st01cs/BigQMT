@@ -129,3 +129,11 @@ STOPPED ─start()→ STARTING ─进程已拉起→ LOGIN ─登录成功+API�
 - 原生客户端 GUI 因券商/版本差异（窗口控件、验证码、登录界面）导致自动登录不稳定 → 以「多探针判定 + 人工兜底 + 可配置流程参数」缓解。
 - xtquant 与 QMT 进程「活着但通道断开」的中间态 → 用 ping 级健康探针区分，而不是只查进程。
 - 误杀/误重启 QMT → 进程名白名单 + 精确 exe 匹配，重启仅限明确请求或策略内自动恢复。
+
+## 9. 验收记录（2026-09-09）
+
+- P0/P1/P2/P3 单元测试：76 项通过（1 项真实环境 E2E 默认 skip）。
+- 真实 QMT 环境 E2E：**已跑通** —— 原生客户端启动 + GUI 自动登录 + xtdata 数据连通，
+  运行环境需安装 pywinauto/pyautogui（`pip install bigqmt[auto_login]`）。
+- 默认数据/登录模式 READY 已实测可用（`QMT_TRADING_REQUIRED=false`）。
+- P4（XtQuantTrader 交易会话）未启用、未实现；需要真单交易时再接入。
