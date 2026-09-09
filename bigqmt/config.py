@@ -135,12 +135,38 @@ def _find_env_file(start: Optional[Path] = None) -> Optional[Path]:
     return None
 
 
+def parse_env_file(path: os.PathLike) -> dict:
+    """标准库 .env 解析（python-dotenv 缺失时的兜底）。
+
+    规则：KEY=VALUE，跳过空行与 # 注释，去除首尾引号；
+    不做变量展开，保持与 python-dotenv 的基础行为一致。
+    """
+    result = {}
+    for raw_line in Path(path).read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        if key:
+            result[key] = value
+    return result
+
+
 def load_qmt_config(env_file: Optional[os.PathLike] = None) -> QmtConfig:
     """加载 .env（可选）后，从进程环境变量解析 QmtConfig。"""
-    if _load_dotenv is not None:
-        target = Path(env_file) if env_file else _find_env_file()
-        if target is not None and Path(target).is_file():
+    target = Path(env_file) if env_file is not None else _find_env_file()
+    if target is not None and Path(target).is_file():
+        if _load_dotenv is not None:
             _load_dotenv(Path(target))
+        else:
+            # python-dotenv 缺失时使用标准库兜底，且不覆盖已有环境变量
+            for key, value in parse_env_file(target).items():
+                if key not in os.environ:
+                    os.environ[key] = value
     return config_from_mapping(os.environ)
 
 
@@ -149,4 +175,5 @@ __all__ = [
     "QmtConfigError",
     "config_from_mapping",
     "load_qmt_config",
+    "parse_env_file",
 ]

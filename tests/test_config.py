@@ -1,8 +1,14 @@
 import os
+import tempfile
 import unittest
 from unittest import mock
 
-from bigqmt.config import QmtConfig, config_from_mapping, load_qmt_config
+from bigqmt.config import (
+    QmtConfig,
+    config_from_mapping,
+    load_qmt_config,
+    parse_env_file,
+)
 
 
 class ConfigFromMappingTest(unittest.TestCase):
@@ -89,6 +95,32 @@ class LoadConfigTest(unittest.TestCase):
             cfg = load_qmt_config()
         self.assertEqual(cfg.account_id, "88888888")
         self.assertTrue(cfg.auto_start)
+
+
+class ParseEnvFileTest(unittest.TestCase):
+    def test_parses_basic_and_ignores_comments(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.path.join(tmp, ".env")
+            with open(env, "w", encoding="utf-8") as fh:
+                fh.write(
+                    "# comment\n"
+                    "QMT_ACCOUNT_ID=12345678\n"
+                    'QMT_EXE_PATH="D:/QMT/XtItClient.exe"\n'
+                    "\n"
+                    "EMPTY_LINE_ABOVE=1\n"
+                )
+            values = parse_env_file(env)
+        self.assertEqual(values["QMT_ACCOUNT_ID"], "12345678")
+        self.assertEqual(values["QMT_EXE_PATH"], "D:/QMT/XtItClient.exe")
+        self.assertEqual(values["EMPTY_LINE_ABOVE"], "1")
+        self.assertNotIn("comment", values)
+
+    def test_value_keeps_equals_and_spaces(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = os.path.join(tmp, ".env")
+            with open(env, "w", encoding="utf-8") as fh:
+                fh.write("KEY_WITH_EQ=A=B C\n")
+            self.assertEqual(parse_env_file(env)["KEY_WITH_EQ"], "A=B C")
 
 
 class WithUpdatesTest(unittest.TestCase):
