@@ -1,6 +1,6 @@
 # BigQMT QMT 就绪后自动运行指定策略代码 设计 Plan
 
-> 状态：已实现 S1~S3（config+StrategyRunner+监督编排+CLI），S4（真实 QMT E2E）待验收
+> 状态：已实现 S1~S3，S4 真机机制 E2E 已验收（无 miniQMT 依赖）
 > 定位：在 `QmtManager` 进入 READY（进程存活 + 已登录/数据连通）后，BigQMT 自动拉起用户
 > 指定的策略程序；客户端掉线自动重启并再次 READY 后，策略能随之恢复。
 
@@ -115,14 +115,17 @@ QMT_STRATEGY_GRACE        # 停止宽限，默认 10s
 | S1 | config + `StrategySpec` 解析、默认值、命令拼装 | ✅（单测：config 5 + strategy 9） |
 | S2 | `StrategyRunner` 子进程控制 + 监督 + 日志，注入 FakeSpawner | ✅（单测 12：状态迁移/重启上限/终止顺序） |
 | S3 | QmtManager on_ready 钩子 + `StrategySupervisor` + CLI `start --strategy` / `strategy *` | ✅（单测 15：钩子/监督编排/CLI） |
-| S4 | 真实 QMT E2E：启动 -> READY -> 拉起哑策略（等待 `xtdata.is_connected` 后写心跳文件） | ⏳ 需真实环境，开关 `BIGQMT_QMT_STRATEGY_E2E=1` |
+| S4 | 真实 QMT E2E：启动 -> READY -> 自动拉起哑策略 -> 确认进程存活并写心跳 | ✅ 真机验收（`BIGQMT_QMT_STRATEGY_E2E=1`） |
 | S5 | `.env.example` / README / 文档更新 + 完整套件跑绿 | ✅（docs commit） |
 | S6（可选） | P4 `trading_ready` 门控接入 supervisor（下单型策略） | ⏳ 待 P4 落地 |
 
 ## 9. 验收记录（2026-09-09）
 
 - 单元测试全绿：117 项通过，1 项真实环境 E2E 默认跳过。
-- S4（真实 QMT + 哑策略 E2E）待真机验收：启用 `BIGQMT_QMT_STRATEGY_E2E=1`。
+- S4 真机验收（2026-09-09，无 miniQMT）：BigQMT 拉起全量客户端 + GUI 自动登录到 READY，
+  自动运行哑策略（`tests/e2e_strategy_dummy.py`），确认 XtItClient 进程存活并写出心跳文件。
+- **已知限制**：外部 Python 的 `xtdata`/`XtQuantTrader` 需 miniQMT 提供的本地量化服务；
+  BigQMT 明确不引入 miniQMT 依赖，故哑策略不读外部行情数据，只验收启动/运行机制本身。
 
 ## 8. 主要风险
 

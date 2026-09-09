@@ -29,7 +29,7 @@
 | P3 | 原生客户端 GUI 自动登录 | ✅（真实 QMT 已验收） |
 | P4（可选） | XtQuantTrader 交易会话 | ⏳ 未实现，由 `QMT_TRADING_REQUIRED=true` 启用 |
 | 策略 S1~S3 | 策略自动运行（config / 运行器 / 监督编排 / CLI） | ✅ |
-| 策略 S4 | 真实 QMT E2E（哑策略验证） | ⏳ 待真机验收 |
+| 策略 S4 | 真机机制 E2E（自动拉起哑策略写心跳，无 miniQMT） | ✅ |
 
 ## 环境要求
 
