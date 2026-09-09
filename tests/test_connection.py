@@ -285,5 +285,60 @@ class ContextManagerTest(unittest.TestCase):
                 pass
 
 
+class StateListenerTest(unittest.TestCase):
+    def setUp(self):
+        _reset_singleton()
+
+    def tearDown(self):
+        _reset_singleton()
+
+    def test_ready_listener_fires_once_per_ready_entry(self):
+        driver = FakeDriver(process=True, logged=True, trading=True)
+        mgr = _make_manager(driver)
+        events = []
+        mgr.add_ready_listener(lambda: events.append("ready"))
+        self.assertTrue(mgr.start(timeout=5))
+        # 已 READY 后多次心跳不应重复触发
+        mgr._heartbeat_once()
+        mgr._heartbeat_once()
+        self.assertEqual(events.count("ready"), 1)
+
+    def test_ready_listener_fires_on_recovery(self):
+        driver = FakeDriver(process=True, logged=True, trading=True)
+        mgr = _make_manager(driver)
+        events = []
+        mgr.add_ready_listener(lambda: events.append("ready"))
+        self.assertTrue(mgr.start(timeout=5))
+
+        driver.process = False
+        driver.logged = False
+        mgr._heartbeat_once()  # READY -> DISCONNECTED
+        driver.process = True
+        driver.logged = True
+        mgr._heartbeat_once()  # DISCONNECTED -> READY（恢复）
+        self.assertEqual(events.count("ready"), 2)
+
+    def test_state_listener_receives_transitions(self):
+        driver = FakeDriver(process=True, logged=True, trading=True)
+        mgr = _make_manager(driver)
+        transitions = []
+        mgr.add_state_listener(lambda old, new: transitions.append((old, new)))
+        self.assertTrue(mgr.start(timeout=5))
+        self.assertEqual(transitions[-1], (QmtState.STARTING, QmtState.READY))
+
+        driver.process = False
+        driver.logged = False
+        mgr._heartbeat_once()
+        self.assertEqual(transitions[-1], (QmtState.READY, QmtState.DISCONNECTED))
+
+    def test_ready_listener_not_fired_when_never_ready(self):
+        driver = StuckLoginDriver(process=True, logged=False, trading=True)
+        mgr = _make_manager(driver)
+        events = []
+        mgr.add_ready_listener(lambda: events.append("ready"))
+        self.assertFalse(mgr.start(timeout=0.2))
+        self.assertEqual(events, [])
+
+
 if __name__ == "__main__":
     unittest.main()

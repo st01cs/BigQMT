@@ -17,6 +17,7 @@ from __future__ import annotations
 import enum
 import logging
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -490,6 +491,49 @@ class StrategyRunner:
         self._stop_event = threading.Event()
         return self.start(timeout=timeout)
 
+    def is_running(self) -> bool:
+        """当前进程是否在运行（本进程持有子进程时优先，否则查 PID 文件）。"""
+        with self._lock:
+            process = self._process
+            if process is not None:
+                return self._safe_poll(process) is None
+        return self._pid_file_live()
+
+    def stop_external(self) -> bool:
+        """跨进程停止：按 PID 文件终止策略进程树（本进程未持有子进程时使用）。"""
+        try:
+            pid = int(Path(self.pid_file).read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            return True  # 无 PID 文件可视为已停止
+        if not self._pid_alive(pid):
+            self._remove_pid()
+            return True
+        self._log.warning("[StrategyRunner] 跨进程停止策略 PID=%s（整树）", pid)
+        try:
+            if os.name == "nt":  # pragma: no cover - Windows 专属
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/T", "/F"],
+                    capture_output=True,
+                )
+            else:  # pragma: no cover - QMT 仅 Windows，此处为兼容
+                os.kill(pid, signal.SIGTERM)
+        except OSError as exc:  # pragma: no cover
+            self._log.warning("[StrategyRunner] 跨进程停止失败: %s", exc)
+        self._remove_pid()
+        return True
+
+    def wait(self, timeout: Optional[float] = None) -> StrategyState:
+        """阻塞至策略到达终态（once 模式进程退出/ERROR），适合前台跟随。"""
+        deadline = None if timeout is None else time.monotonic() + timeout
+        while True:
+            with self._lock:
+                if self._state in (StrategyState.STOPPED, StrategyState.ERROR):
+                    return self._state
+            self.check()
+            if deadline is not None and time.monotonic() >= deadline:
+                return self.state
+            self._sleep(0.2)
+
     # ------------------------------------------------------------------ #
     # 监督（supervise 模式）
     # ------------------------------------------------------------------ #
@@ -555,12 +599,86 @@ class StrategyRunner:
                 return
 
 
+class StrategySupervisor:
+    """把 QMT 生命周期与策略运行器绑定（见 docs/QMT_STRATEGY_RUNNER_PLAN.md 第 3/4 节）。
+
+    编排策略：
+    - QMT 掉线（READY -> DISCONNECTED/ERROR/STOPPING）：先停策略，避免其持有失效通道；
+    - QMT 恢复/首次就绪（* -> READY）：确保策略在运行（DISCONNECTED/ERROR 恢复时先停旧会话
+      再以全新进程拉起）。
+
+    manager 只需鸭子类型满足：add_state_listener / ensure_ready / stop / status；
+    状态以字符串值比较（QmtState / StrategyState 均为 str 枚举），避免循环依赖。
+    """
+
+    _READY = "ready"
+    _RUNNING_STATES = ("running", "launching", "stopping")
+    _RECOVERY_FROM = ("disconnected", "error")
+
+    def __init__(self, manager, runner: StrategyRunner):
+        self._manager = manager
+        self._runner = runner
+        manager.add_state_listener(self._on_state)
+
+    @property
+    def runner(self) -> StrategyRunner:
+        return self._runner
+
+    def _value(self, state) -> str:
+        return getattr(state, "value", state)
+
+    def _runner_running(self) -> bool:
+        return self._value(self._runner.state) in self._RUNNING_STATES
+
+    def _on_state(self, old, new) -> None:
+        new_v = self._value(new)
+        old_v = self._value(old)
+        if new_v == self._READY:
+            if old_v in self._RECOVERY_FROM:
+                # QMT 恢复：旧策略会话已不可信，先停再以全新进程拉起
+                self._runner.stop()
+            if not self._runner_running():
+                # timeout=0：跳过阻塞式启动确认，交给运行器监督/前台跟随处理
+                self._runner.start(timeout=0)
+        elif old_v == self._READY and new_v in self._RECOVERY_FROM:
+            self._runner.stop()
+
+    def start(self, timeout: Optional[float] = None) -> bool:
+        """确保 QMT READY 后拉起策略（幂等）。"""
+        if not self._manager.ensure_ready(auto_start=True, timeout=timeout):
+            return False
+        if self._runner_running():
+            return True
+        return self._runner.start(timeout=0)
+
+    def stop_strategy(self) -> bool:
+        """仅停止策略与监督（保留 QMT 客户端与心跳）。"""
+        return self._runner.stop()
+
+    def stop(self, close_client: bool = False) -> bool:
+        """停止策略并停止管理器（默认不关闭 QMT 客户端，避免误杀）。"""
+        self._runner.stop()
+        return self._manager.stop(close_client=close_client)
+
+    def restart_strategy(self, timeout: Optional[float] = None) -> bool:
+        """先停策略，再确保 QMT READY 并重启策略。"""
+        if not self._manager.ensure_ready(auto_start=True, timeout=timeout):
+            return False
+        return self._runner.restart()
+
+    def status(self) -> dict:
+        status = dict(self._manager.status())
+        status["strategy"] = self._runner.status()
+        return status
+
+
 __all__ = [
     "StrategyMode",
     "StrategyConfigError",
     "StrategyState",
     "StrategySpec",
     "StrategyRunner",
+    "StrategySupervisor",
     "build_strategy_spec",
     "build_command",
 ]

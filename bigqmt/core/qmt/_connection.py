@@ -217,6 +217,8 @@ class QmtManager:
         self._watchdog_thread: Optional[threading.Thread] = None
         self._login_poll = 2.0
         self._last_login_attempt_at = float("-inf")
+        self._state_listeners: list = []
+        self._ready_listeners: list = []
 
     # ------------------------------------------------------------------ #
     # 基础访问
@@ -264,6 +266,22 @@ class QmtManager:
                 },
             }
 
+    def add_state_listener(self, listener: Callable[[QmtState, QmtState], None]) -> None:
+        """注册状态迁移监听器；仅在实际发生迁移（状态变化）时回调 listener(old, new)。"""
+        with self._lock:
+            self._state_listeners.append(listener)
+
+    def add_ready_listener(self, callback: Callable[[], None]) -> None:
+        """注册 on_ready 钩子：仅在迁移进入 READY（含 DISCONNECTED 恢复）时回调。"""
+
+        def _wrapper(old: QmtState, new: QmtState) -> None:
+            if new is QmtState.READY:
+                callback()
+
+        with self._lock:
+            self._ready_listeners.append(_wrapper)
+            self._state_listeners.append(_wrapper)
+
     @staticmethod
     def _safe_probe(probe: Callable[[], bool]) -> bool:
         try:
@@ -277,8 +295,14 @@ class QmtManager:
     def _set_state(self, state: QmtState) -> None:
         if state is self._state:
             return
+        old = self._state
         self._log.info("[QmtManager] %s -> %s", self._state.value, state.value)
         self._state = state
+        for listener in list(self._state_listeners):
+            try:
+                listener(old, state)
+            except Exception:  # pragma: no cover - 监听器异常不应影响状态机
+                self._log.exception("[QmtManager] 状态监听器异常")
 
     def _mark_ready(self) -> None:
         self._last_error = None
