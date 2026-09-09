@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bigqmt"
+version = "0.1.0"
+description = "BigQMT - 原生QMT量化交易客户端启动与管理"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "st01cs" }]
+keywords = ["QMT", "量化交易", "xtquant"]
+dependencies = [
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+auto_login = [
+    "pywinauto>=0.6.8",
+    "pyautogui>=0.9.54",
+]
+dev = [
+    "pytest>=7.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["bigqmt*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
