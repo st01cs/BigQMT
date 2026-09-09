@@ -1,6 +1,6 @@
 # BigQMT QMT 就绪后自动运行指定策略代码 设计 Plan
 
-> 状态：设计草案（未编码）
+> 状态：已实现 S1~S3（config+StrategyRunner+监督编排+CLI），S4（真实 QMT E2E）待验收
 > 定位：在 `QmtManager` 进入 READY（进程存活 + 已登录/数据连通）后，BigQMT 自动拉起用户
 > 指定的策略程序；客户端掉线自动重启并再次 READY 后，策略能随之恢复。
 
@@ -112,12 +112,17 @@ QMT_STRATEGY_GRACE        # 停止宽限，默认 10s
 
 | 阶段 | 内容 | 测试 / 验收 |
 | --- | --- | --- |
-| S1 | config + `StrategySpec` 解析、默认值、命令拼装 | config_from_mapping 单测 |
-| S2 | `StrategyRunner` 子进程控制 + 监督 + 日志，注入 FakeSpawner | 状态迁移 / 重启上限 / 终止顺序单测 |
-| S3 | QmtManager on_ready 钩子 + CLI `start --strategy` / `strategy *` | 钩子只在 READY（含恢复）触发；disabled 不触发 |
-| S4 | 真实 QMT E2E：启动 -> READY -> 拉起哑策略（等待 `xtdata.is_connected` 后写心跳文件） | `BIGQMT_QMT_STRATEGY_E2E=1` 跑真环境 |
-| S5 | `.env.example` / README / 文档更新 + 完整套件跑绿 | docs commit |
-| S6（可选） | P4 `trading_ready` 门控接入 supervisor（下单型策略） | mock 交易通道 E2E |
+| S1 | config + `StrategySpec` 解析、默认值、命令拼装 | ✅（单测：config 5 + strategy 9） |
+| S2 | `StrategyRunner` 子进程控制 + 监督 + 日志，注入 FakeSpawner | ✅（单测 12：状态迁移/重启上限/终止顺序） |
+| S3 | QmtManager on_ready 钩子 + `StrategySupervisor` + CLI `start --strategy` / `strategy *` | ✅（单测 15：钩子/监督编排/CLI） |
+| S4 | 真实 QMT E2E：启动 -> READY -> 拉起哑策略（等待 `xtdata.is_connected` 后写心跳文件） | ⏳ 需真实环境，开关 `BIGQMT_QMT_STRATEGY_E2E=1` |
+| S5 | `.env.example` / README / 文档更新 + 完整套件跑绿 | ✅（docs commit） |
+| S6（可选） | P4 `trading_ready` 门控接入 supervisor（下单型策略） | ⏳ 待 P4 落地 |
+
+## 9. 验收记录（2026-09-09）
+
+- 单元测试全绿：117 项通过，1 项真实环境 E2E 默认跳过。
+- S4（真实 QMT + 哑策略 E2E）待真机验收：启用 `BIGQMT_QMT_STRATEGY_E2E=1`。
 
 ## 8. 主要风险
 
