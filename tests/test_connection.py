@@ -143,10 +143,20 @@ class QmtManagerTest(unittest.TestCase):
 
     def test_start_reports_trading_not_ready(self):
         driver = FakeDriver(process=True, logged=True, trading=False)
-        mgr = _make_manager(driver)
+        config = _base_config(trading_required=True)
+        mgr = _make_manager(driver, config=config)
         self.assertFalse(mgr.start(timeout=1))
         self.assertEqual(mgr.state, QmtState.LOGIN)
         self.assertIn("交易通道", mgr.last_error or "")
+
+    def test_start_ready_without_trading_when_not_required(self):
+        """默认数据/登录模式：登录成功即 READY，无需交易通道。"""
+        driver = FakeDriver(process=True, logged=True, trading=False)
+        config = _base_config(trading_required=False)
+        mgr = _make_manager(driver, config=config)
+        self.assertTrue(mgr.start(timeout=5))
+        self.assertEqual(mgr.state, QmtState.READY)
+        self.assertIsNone(mgr.last_error)
 
     def test_heartbeat_recovers_from_disconnect(self):
         driver = FakeDriver(process=True, logged=True, trading=True)

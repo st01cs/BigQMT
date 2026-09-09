@@ -60,14 +60,16 @@ STOPPED ─start()→ STARTING ─进程已拉起→ LOGIN ─登录成功+API�
                           │ 自动重试（有次数上限，超限转 ERROR 并通知）
 ```
 
-- `READY` 定义：原生 QMT 进程存活 + `xtdata.is_connected()==True` + 交易会话 connect 成功 + 至少一个账户 subscribe 成功。三项同时满足才进 READY。
+- `READY` 定义：原生 QMT 进程存活 + `xtdata.is_connected()==True`（数据通道可用）。
+  默认数据/登录模式（`QMT_TRADING_REQUIRED=false`）即以此判定；
+  仅当显式开启 `QMT_TRADING_REQUIRED=true` 时才额外要求交易会话 connect + 至少一个账户 subscribe 成功（P4）。
 - 每次状态迁移发事件/日志；`status()` 返回 state、pid、login、xtconnected、trader、last_heartbeat。
 
 ## 5. 模块要点
 
 ### config.py
 
-- 配置项：`QMT_EXE_PATH`（原生客户端 exe，默认补全候选如 `bin.x64\XtItClient.exe`）、`QMT_USERDATA_PATH` / `QMT_DATA_DIR`、`QMT_ACCOUNT_ID`、`QMT_PASSWORD`、`QMT_PROCESS_NAMES`（进程名白名单，防误杀）、`session_id`、自动启动/重启开关与次数上限、探测间隔。
+- 配置项：`QMT_EXE_PATH`（原生客户端 exe，默认补全候选如 `bin.x64\XtItClient.exe`）、`QMT_USERDATA_PATH` / `QMT_DATA_DIR`、`QMT_ACCOUNT_ID`、`QMT_PASSWORD`、`QMT_PROCESS_NAMES`（进程名白名单，防误杀）、`session_id`、自动启动/重启开关与次数上限、`QMT_TRADING_REQUIRED`（交易通道要求开关）、探测间隔。
 - 显式配置优先 → 磁盘扫描兜底。
 
 ### _paths.py（参考 qmt_paths.py）

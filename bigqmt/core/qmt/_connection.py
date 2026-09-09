@@ -2,7 +2,8 @@
 
 对应 docs/QMT_STARTUP_PLAN.md 第 4/5 节：
 - 显式状态机：STOPPED / STARTING / LOGIN / READY / DISCONNECTED / ERROR / STOPPING；
-- READY = 进程存活 + 已登录 + 交易通道就绪，三者同时满足；
+- READY = 进程存活 + 已登录（数据通道可用）；仅当 QMT_TRADING_REQUIRED=true
+  时才额外要求交易通道就绪（P4）；
 - 心跳线程定期探活，支持自动重启（有次数上限），避免 EasyXT「30 秒缓存假阳性」问题。
 
 与真实客户端交互通过 QmtDriver 抽象进行：
@@ -257,6 +258,7 @@ class QmtManager:
                     "process_names": list(self._config.process_names),
                     "auto_start": self._config.auto_start,
                     "auto_restart": self._config.auto_restart,
+                    "trading_required": self._config.trading_required,
                     "max_restarts": self._config.max_restarts,
                     "poll_interval": self._config.poll_interval,
                 },
@@ -290,11 +292,19 @@ class QmtManager:
         self._set_state(QmtState.ERROR)
 
     def _is_ready(self) -> bool:
-        return (
+        """READY 判定：进程 + 登录为必需；交易通道仅在 trading_required 时要求。
+
+        默认（数据/登录模式）下，登录成功即表示行情数据通道可用
+        （xtdata.is_connected），因此无需等待 XtQuantTrader（P4）。
+        """
+        if not (
             self._safe_probe(self._driver.is_process_running)
             and self._safe_probe(self._driver.is_logged_in)
-            and self._safe_probe(self._driver.trading_ready)
-        )
+        ):
+            return False
+        if self._config.trading_required:
+            return self._safe_probe(self._driver.trading_ready)
+        return True
 
     def _attempt_login(self, timeout: int) -> bool:
         if not self._config.password:
@@ -346,8 +356,13 @@ class QmtManager:
                     self._last_error = "等待人工登录（未配置 QMT_PASSWORD）"
                 self._sleep(self._login_poll)
 
-            if not self._safe_probe(self._driver.trading_ready):
-                self._last_error = "交易通道未就绪（P4 将接入 XtQuantTrader）"
+            if (
+                self._config.trading_required
+                and not self._safe_probe(self._driver.trading_ready)
+            ):
+                self._last_error = (
+                    "交易通道未就绪（QMT_TRADING_REQUIRED=true，需 P4 接入 XtQuantTrader）"
+                )
                 self._set_state(QmtState.LOGIN)
                 return False
 

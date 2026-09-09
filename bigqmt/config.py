@@ -81,6 +81,7 @@ class QmtConfig:
     process_names: Tuple[str, ...] = ("XtItClient.exe",)
     auto_start: bool = False
     auto_restart: bool = True
+    trading_required: bool = False
     max_restarts: int = 3
     poll_interval: float = 20.0
     login_timeout: int = 60
@@ -116,6 +117,7 @@ def config_from_mapping(mapping: Mapping[str, Any]) -> QmtConfig:
         process_names=_to_csv_tuple(get("QMT_PROCESS_NAMES"), ("XtItClient.exe",)),
         auto_start=_to_bool(get("QMT_AUTO_START"), False),
         auto_restart=_to_bool(get("QMT_AUTO_RESTART"), True),
+        trading_required=_to_bool(get("QMT_TRADING_REQUIRED"), False),
         max_restarts=_to_int(get("QMT_MAX_RESTARTS"), 3),
         poll_interval=_to_float(get("QMT_POLL_INTERVAL"), 20.0),
         login_timeout=_to_int(get("QMT_LOGIN_TIMEOUT"), 60),

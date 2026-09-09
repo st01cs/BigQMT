@@ -15,6 +15,7 @@ class ConfigFromMappingTest(unittest.TestCase):
         self.assertEqual(cfg.process_names, ("XtItClient.exe",))
         self.assertFalse(cfg.auto_start)
         self.assertTrue(cfg.auto_restart)
+        self.assertFalse(cfg.trading_required)
         self.assertEqual(cfg.max_restarts, 3)
         self.assertEqual(cfg.poll_interval, 20.0)
         self.assertEqual(cfg.login_timeout, 60)
@@ -31,6 +32,7 @@ class ConfigFromMappingTest(unittest.TestCase):
                 "QMT_PROCESS_NAMES": "XtItClient.exe, xtmini.exe",
                 "QMT_AUTO_START": "true",
                 "QMT_AUTO_RESTART": "0",
+                "QMT_TRADING_REQUIRED": "true",
                 "QMT_MAX_RESTARTS": "5",
                 "QMT_POLL_INTERVAL": "10.5",
                 "QMT_LOGIN_TIMEOUT": "90",
@@ -45,6 +47,7 @@ class ConfigFromMappingTest(unittest.TestCase):
         self.assertEqual(cfg.process_names, ("XtItClient.exe", "xtmini.exe"))
         self.assertTrue(cfg.auto_start)
         self.assertFalse(cfg.auto_restart)
+        self.assertTrue(cfg.trading_required)
         self.assertEqual(cfg.max_restarts, 5)
         self.assertEqual(cfg.poll_interval, 10.5)
         self.assertEqual(cfg.login_timeout, 90)

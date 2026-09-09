@@ -4,7 +4,8 @@
 - P0/P1：配置解析（bigqmt.config）、安装路径发现（_paths）、进程检测（_process）；
 - P2：QmtManager 状态机 + 心跳/自动重启 + 装饰器/上下文/CLI（_connection / cli）；
 - P3：原生客户端 GUI 自动登录（_auto_login，pywinauto），已接入 DefaultQmtDriver；
-- P4 待接入：XtQuantTrader 交易会话（_trader）。
+默认数据/登录模式：READY = 进程存活 + 已登录（xtdata 连通），无需交易会话；
+P4 待接入（可选）：XtQuantTrader 交易会话（_trader），由 QMT_TRADING_REQUIRED 开关启用。
 """
 
 from bigqmt.config import (
