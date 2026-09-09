@@ -22,6 +22,7 @@ from functools import wraps
 from typing import Callable, Optional
 
 from bigqmt.config import QmtConfig, load_qmt_config
+from ._auto_login import AutoLoginError, NativeQmtAutoLogin
 from ._paths import QmtLocations, locate_qmt
 from ._process import any_process_running
 
@@ -73,8 +74,8 @@ class QmtDriver:
 class DefaultQmtDriver(QmtDriver):
     """基于现有原语 + 可选 xtquant 的默认驱动。
 
-    自动登录（P3）与交易会话（P4）落地前，
-    login()/trading_ready() 保持保守的 False。
+    - 配置了密码时会构建 NativeQmtAutoLogin 执行 GUI 自动登录（P3）；
+    - trading_ready() 在 P4（XtQuantTrader 会话）落地前保持 False。
     """
 
     def __init__(self, config: QmtConfig, locations: QmtLocations):
@@ -86,7 +87,33 @@ class DefaultQmtDriver(QmtDriver):
             if base.lower() not in {n.lower() for n in names}:
                 names.append(base)
         self._process_names = tuple(names) or ("XtItClient.exe",)
+        self._auto_login = self._try_build_auto_login()
         self.last_error: Optional[str] = None
+
+    def _try_build_auto_login(self) -> Optional[NativeQmtAutoLogin]:
+        """构建自动登录器（需配置密码与可执行文件；缺一则返回 None）。"""
+        if not self.config.password:
+            return None
+        exe = None
+        if self.locations.exe_path is not None:
+            exe = str(self.locations.exe_path)
+        elif self.config.exe_path:
+            exe = self.config.exe_path
+        if not exe:
+            return None
+        data_dir = None
+        if self.locations.userdata_dir is not None:
+            data_dir = str(self.locations.userdata_dir)
+        elif self.config.userdata_path:
+            data_dir = self.config.userdata_path
+        try:
+            return NativeQmtAutoLogin(
+                exe_path=exe,
+                password=self.config.password,
+                data_dir=data_dir,
+            )
+        except Exception:  # pragma: no cover - 构建失败则退化为无自动登录
+            return None
 
     def is_process_running(self) -> bool:
         try:
@@ -109,20 +136,49 @@ class DefaultQmtDriver(QmtDriver):
             self.last_error = f"启动QMT客户端失败: {exc}"
             return False
 
-    def is_logged_in(self) -> bool:
+    def _xtdata_connected(self) -> bool:
         try:
             from xtquant import xtdata
 
-            if hasattr(xtdata, "is_connected"):
-                return bool(xtdata.is_connected())
-            return False
+            return hasattr(xtdata, "is_connected") and bool(xtdata.is_connected())
         except Exception:
             return False
 
-    def login(self, timeout: Optional[int] = None) -> bool:
-        self.last_error = "自动登录尚未实现（P3 将接入 pywinauto）"
-        logger.warning(self.last_error)
+    def is_logged_in(self) -> bool:
+        """登录态判定：xtquant 最可靠，其次自动登录器的窗口启发式。"""
+        if self._xtdata_connected():
+            return True
+        if self._auto_login is not None:
+            try:
+                return bool(self._auto_login.is_logged_in())
+            except Exception as exc:
+                self.last_error = str(exc)
+                return False
         return False
+
+    def login(self, timeout: Optional[int] = None) -> bool:
+        if self._auto_login is None:
+            if not self.config.password:
+                self.last_error = "未配置 QMT_PASSWORD，无法自动登录（可人工登录）"
+            else:
+                self.last_error = "未定位 QMT 可执行文件，无法自动登录"
+            logger.warning("[DefaultQmtDriver] %s", self.last_error)
+            return False
+        try:
+            ok = bool(
+                self._auto_login.login(
+                    timeout=timeout or int(self.config.login_timeout or 60)
+                )
+            )
+            if not ok:
+                self.last_error = self._auto_login.last_error or "自动登录未成功"
+            return ok
+        except AutoLoginError as exc:
+            self.last_error = str(exc)
+            return False
+        except Exception as exc:  # pragma: no cover - 防御自动登录异常
+            self.last_error = f"自动登录异常: {exc}"
+            return False
 
     def trading_ready(self) -> bool:
         return False  # P4 接入 XtQuantTrader 会话
@@ -159,6 +215,7 @@ class QmtManager:
         self._stop_event = threading.Event()
         self._watchdog_thread: Optional[threading.Thread] = None
         self._login_poll = 2.0
+        self._last_login_attempt_at = float("-inf")
 
     # ------------------------------------------------------------------ #
     # 基础访问
@@ -243,6 +300,7 @@ class QmtManager:
         if not self._config.password:
             self._last_error = "等待人工登录（未配置 QMT_PASSWORD）"
             return False
+        self._last_login_attempt_at = self._clock()
         try:
             ok = bool(self._driver.login(timeout=timeout))
             if not ok:
@@ -279,8 +337,11 @@ class QmtManager:
                     self._fail(self._last_error or "登录超时")
                     return False
                 if self._config.password:
-                    remaining = max(1, int(deadline - self._clock()))
-                    self._attempt_login(remaining)
+                    if self._clock() - self._last_login_attempt_at >= self._login_poll:
+                        remaining = max(1, int(deadline - self._clock()))
+                        self._attempt_login(remaining)
+                    else:
+                        self._last_error = "自动登录进行中，等待结果..."
                 else:
                     self._last_error = "等待人工登录（未配置 QMT_PASSWORD）"
                 self._sleep(self._login_poll)
