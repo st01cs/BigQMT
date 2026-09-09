@@ -84,6 +84,54 @@ class ConfigFromMappingTest(unittest.TestCase):
         self.assertEqual(cfg.max_restarts, 3)
         self.assertIsNone(cfg.session_id)
 
+    def test_strategy_defaults(self):
+        cfg = config_from_mapping({})
+        self.assertFalse(cfg.strategy_enabled)
+        self.assertIsNone(cfg.strategy_cmd)
+        self.assertIsNone(cfg.strategy_python)
+        self.assertIsNone(cfg.strategy_cwd)
+        self.assertEqual(cfg.strategy_mode, "supervise")
+        self.assertEqual(cfg.strategy_max_restarts, 3)
+        self.assertIsNone(cfg.strategy_log)
+        self.assertEqual(cfg.strategy_start_timeout, 30)
+        self.assertEqual(cfg.strategy_grace, 10.0)
+
+    def test_strategy_full_mapping(self):
+        cfg = config_from_mapping(
+            {
+                "QMT_STRATEGY_ENABLED": "true",
+                "QMT_STRATEGY_CMD": r'python D:\strat\main.py --trade',
+                "QMT_STRATEGY_PYTHON": r"D:\venv\python.exe",
+                "QMT_STRATEGY_CWD": r"D:\strat",
+                "QMT_STRATEGY_MODE": "once",
+                "QMT_STRATEGY_MAX_RESTARTS": "7",
+                "QMT_STRATEGY_LOG": r"D:\strat\logs\run.log",
+                "QMT_STRATEGY_START_TIMEOUT": "45",
+                "QMT_STRATEGY_GRACE": "3.5",
+            }
+        )
+        self.assertTrue(cfg.strategy_enabled)
+        self.assertEqual(cfg.strategy_cmd, r"python D:\strat\main.py --trade")
+        self.assertEqual(cfg.strategy_python, r"D:\venv\python.exe")
+        self.assertEqual(cfg.strategy_cwd, r"D:\strat")
+        self.assertEqual(cfg.strategy_mode, "once")
+        self.assertEqual(cfg.strategy_max_restarts, 7)
+        self.assertEqual(cfg.strategy_log, r"D:\strat\logs\run.log")
+        self.assertEqual(cfg.strategy_start_timeout, 45)
+        self.assertEqual(cfg.strategy_grace, 3.5)
+
+    def test_strategy_invalid_values_fall_back_to_defaults(self):
+        cfg = config_from_mapping(
+            {
+                "QMT_STRATEGY_ENABLED": "not-a-bool",
+                "QMT_STRATEGY_MAX_RESTARTS": "abc",
+                "QMT_STRATEGY_GRACE": "x",
+            }
+        )
+        self.assertFalse(cfg.strategy_enabled)
+        self.assertEqual(cfg.strategy_max_restarts, 3)
+        self.assertEqual(cfg.strategy_grace, 10.0)
+
 
 class LoadConfigTest(unittest.TestCase):
     def test_load_from_environment(self):

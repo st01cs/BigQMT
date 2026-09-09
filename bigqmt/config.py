@@ -86,6 +86,16 @@ class QmtConfig:
     poll_interval: float = 20.0
     login_timeout: int = 60
     manual_login_wait: int = 120
+    # ---- 策略自动运行（S1，见 docs/QMT_STRATEGY_RUNNER_PLAN.md 第 4 节） ----
+    strategy_enabled: bool = False
+    strategy_cmd: Optional[str] = None
+    strategy_python: Optional[str] = None
+    strategy_cwd: Optional[str] = None
+    strategy_mode: str = "supervise"
+    strategy_max_restarts: int = 3
+    strategy_log: Optional[str] = None
+    strategy_start_timeout: int = 30
+    strategy_grace: float = 10.0
 
     def with_updates(self, **kwargs: Any) -> "QmtConfig":
         """返回替换指定字段后的新配置（frozen dataclass 不可原地修改）。"""
@@ -122,6 +132,15 @@ def config_from_mapping(mapping: Mapping[str, Any]) -> QmtConfig:
         poll_interval=_to_float(get("QMT_POLL_INTERVAL"), 20.0),
         login_timeout=_to_int(get("QMT_LOGIN_TIMEOUT"), 60),
         manual_login_wait=_to_int(get("QMT_MANUAL_LOGIN_WAIT"), 120),
+        strategy_enabled=_to_bool(get("QMT_STRATEGY_ENABLED"), False),
+        strategy_cmd=_to_str(get("QMT_STRATEGY_CMD")) or None,
+        strategy_python=_to_str(get("QMT_STRATEGY_PYTHON")) or None,
+        strategy_cwd=_to_str(get("QMT_STRATEGY_CWD")) or None,
+        strategy_mode=_to_str(get("QMT_STRATEGY_MODE"), "supervise"),
+        strategy_max_restarts=_to_int(get("QMT_STRATEGY_MAX_RESTARTS"), 3),
+        strategy_log=_to_str(get("QMT_STRATEGY_LOG")) or None,
+        strategy_start_timeout=_to_int(get("QMT_STRATEGY_START_TIMEOUT"), 30),
+        strategy_grace=_to_float(get("QMT_STRATEGY_GRACE"), 10.0),
     )
 
 
