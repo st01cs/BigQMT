@@ -35,7 +35,7 @@
 
 - Windows（QMT 客户端仅支持 Windows）
 - 已安装原生 QMT（完整版）客户端，如 `国金证券QMT交易端`
-- Python 3.9+
+- Python 3.10+（MCP 服务依赖 `fastmcp 4.x`，其要求 `>=3.10`）
 - 运行时依赖：`xtquant`（随 QMT 客户端/Python 环境提供，见下文"依赖说明"）
 - GUI 自动登录（可选，强烈建议）：`pywinauto`、`pyautogui`
 
@@ -46,6 +46,9 @@
 
 ```bash
 pip install "bigqmt[auto_login]"
+
+# 可选：MCP 服务依赖（fastmcp + requests）
+pip install "bigqmt[mcp]"
 ```
 
 ## 安装
@@ -60,6 +63,9 @@ pip install -e .
 
 # 可选：GUI 自动登录依赖
 pip install -e ".[auto_login]"
+
+# 可选：MCP 服务依赖
+pip install -e ".[mcp]"
 
 # 可选：开发/测试依赖（pytest 等）
 pip install -e ".[dev]"
@@ -91,6 +97,18 @@ copy .env.example .env
 | `QMT_STRATEGY_PYTHON` | 策略解释器（需可 `import xtquant`；默认当前解释器） | 可选 |
 | `QMT_STRATEGY_MODE` | `once`（退出即结束）/ `supervise`（崩溃重启） | 默认 `supervise` |
 | `QMT_STRATEGY_MAX_RESTARTS` / `QMT_STRATEGY_GRACE` | 重启上限 / 停止宽限 | 可选 |
+
+MCP 服务配置（详见 `docs/QMT_MCP_SERVER_PLAN.md`）：
+
+| 变量 | 说明 | 默认 |
+| --- | --- | --- |
+| `QMT_MCP_HOST` | MCP 监听地址 | `127.0.0.1`（仅本机） |
+| `QMT_MCP_PORT` | MCP 监听端口 | `9000` |
+| `QMT_MCP_ALLOW_REMOTE` | 允许绑定非回环地址（对局域网开放） | `false` |
+| `QMT_MCP_AUTH_TOKEN` | 非空则要求 `Authorization: Bearer <token>` | 空（不鉴权） |
+| `QMT_HTTP_BASE_URL` | QMT 侧 HTTP API 地址 | `http://127.0.0.1:10086` |
+| `QMT_HTTP_TOKEN` | 调用 QMT HTTP API 的 `X-Token` | `123456789` |
+| `QMT_MCP_REQUEST_TIMEOUT` | 调用 QMT 后端超时（秒） | `10` |
 
 ## 快速使用
 
@@ -184,9 +202,40 @@ python -m unittest discover -s tests -t .
 # 真实 QMT 环境 E2E（需已配置 .env 且装有 pywinauto/pyautogui）
 $env:BIGQMT_QMT_E2E = "1"
 python -m unittest tests.test_auto_login_e2e -v
+
+# MCP 协议级 E2E（需 MCP 服务已在运行）
+$env:QMT_MCP_E2E = "1"
+python -m unittest tests.test_mcp_protocol_e2e -v
 ```
 
 > 真实环境验收记录见 `docs/QMT_STARTUP_PLAN.md`。
+
+## MCP 服务
+
+把 QMT 的行情/账户/交易能力暴露为 MCP 工具（53 个 tools + 2 个 resources），
+适合被支持 MCP 的客户端（Claude Desktop、Codex 等）直接调用。
+
+```bash
+# 默认仅本机可访问：http://127.0.0.1:9000/mcp
+python -m bigqmt.mcp
+
+# 指定端口 / QMT 后端地址
+python -m bigqmt.mcp --port 9100 --qmt-url http://127.0.0.1:10086
+
+# 需要局域网访问时：必须显式声明，并强烈建议启用 Bearer 鉴权
+python -m bigqmt.mcp --host 0.0.0.0 --allow-remote --auth-token <your-token>
+```
+
+链路：MCP 客户端 → `bigqmt.mcp`（9000）→ QMT HTTP API（10086，跑在 QMT 内）→ 迅投 QMT。
+其中 QMT 侧 API 由 `bigqmt/service/http.py` 提供（部署到 QMT 的 python 目录，以策略方式运行，
+使用 QMT 内置 Python 3.6）。
+
+排查提示：
+
+- 账户/资金类工具返回 500「资金数据获取失败」＝ `bigqmt/service/http.py` 的 `ACCOUNT_ID`
+  仍是占位符，需填真实资金账号后重新部署。
+- 工具调用失败会以 `isError=true` 返回，错误正文包含后端 URL 与状态码。
+- 手工验证脚本：`python scripts/verify_mcp_endpoint.py --url http://127.0.0.1:9000/mcp`。
 
 ## 项目结构
 
@@ -194,6 +243,14 @@ python -m unittest tests.test_auto_login_e2e -v
 BigQMT/
 ├─ bigqmt/
 │  ├─ config.py              # .env / 环境变量解析（含标准库兜底）
+│  ├─ mcp/                   # MCP 服务（FastMCP）
+│  │  ├─ config.py           # 监听地址/端口/鉴权/QMT 后端配置
+│  │  ├─ client.py           # QMT HTTP 客户端 + QMTApiError
+│  │  ├─ auth.py             # Bearer 鉴权中间件
+│  │  ├─ server.py           # 53 tools + 2 resources
+│  │  └─ cli.py / __main__.py
+│  ├─ service/
+│  │  └─ http.py             # 部署到 QMT 内的 Tornado API（Py3.6）
 │  └─ core/qmt/
 │     ├─ _connection.py      # QmtManager 状态机、心跳、装饰器/上下文
 │     ├─ _paths.py           # 安装/数据目录自动发现
@@ -202,8 +259,10 @@ BigQMT/
 │     ├─ _strategy.py        # StrategySpec / StrategyRunner / StrategySupervisor
 │     ├─ cli.py / __main__.py
 ├─ tests/                    # unittest 测试 + E2E（默认 skip）
+├─ scripts/verify_mcp_endpoint.py     # MCP 端点手工验证
 ├─ docs/QMT_STARTUP_PLAN.md  # 设计 Plan 与验收记录
 ├─ docs/QMT_STRATEGY_RUNNER_PLAN.md  # 策略自动运行设计 Plan 与验收记录
+├─ docs/QMT_MCP_SERVER_PLAN.md       # MCP 迁移 Plan 与验收记录
 ├─ .env.example
 └─ pyproject.toml
 ```
