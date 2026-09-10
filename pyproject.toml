@@ -7,7 +7,7 @@ name = "bigqmt"
 version = "0.1.0"
 description = "BigQMT - 原生QMT量化交易客户端启动与管理"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "st01cs" }]
 keywords = ["QMT", "量化交易", "xtquant"]
@@ -16,6 +16,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+mcp = [
+    "fastmcp>=4.0,<5",
+    "requests>=2.31",
+]
 auto_login = [
     "pywinauto>=0.6.8",
     "pyautogui>=0.9.54",
@@ -23,6 +27,9 @@ auto_login = [
 dev = [
     "pytest>=7.0",
 ]
+
+[project.scripts]
+bigqmt-mcp = "bigqmt.mcp.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["bigqmt*"]
