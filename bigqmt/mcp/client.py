@@ -234,6 +234,25 @@ class QMTClient:
             },
         )
 
+    # ---- 资金流（北向 / 港通）----
+    def get_north_finance_change(self, period: str = "1d") -> Dict:
+        """北向资金（陆股通）资金变化，市场级每日流入/流出。"""
+        return self._req(
+            "POST", "/api/data/north_finance_change", json={"period": period}
+        )
+
+    def get_hkt_statistics(self, stock_code: str) -> Dict:
+        """个股港通统计（沪/深股通持股与资金统计）。"""
+        return self._req(
+            "POST", "/api/data/hkt_statistics", json={"stock_code": stock_code}
+        )
+
+    def get_hkt_details(self, stock_code: str) -> Dict:
+        """个股港通明细（逐日流入/流出）。"""
+        return self._req(
+            "POST", "/api/data/hkt_details", json={"stock_code": stock_code}
+        )
+
     # ---- 交易 ----
     def buy_stock(
         self, stock: str, price: float, volume: int, pr_type: int = 11

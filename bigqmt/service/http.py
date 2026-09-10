@@ -145,6 +145,16 @@ def normalize_date8(value, default):
     return default
 
 
+def is_empty_result(value):
+    """判断 QMT 返回值是否为空（兼容 DataFrame/ndarray 与 dict/list）。"""
+    if value is None:
+        return True
+    try:
+        return len(value) == 0
+    except TypeError:
+        return False
+
+
 def log_startup_self_check():
     """启动自检：账号配置 + 交易账号连通性。只写日志，不阻断服务启动。"""
     ok, message = check_account_id(ACCOUNT_ID)
@@ -521,6 +531,42 @@ class LonghubangHandler(BaseHandler):
         if hasattr(ret, 'to_dict'):
             ret = ret.to_dict()
         self.write(json.dumps({"data": ret} if ret else {"error": "获取龙虎榜数据失败"}, ensure_ascii=False, default=str))
+
+# ContextInfo.get_north_finance_change() - 北向资金变化（市场级每日流入/流出）
+class NorthFinanceChangeHandler(BaseHandler):
+    def post(self):
+        data = json.loads(self.request.body)
+        period = data.get('period', '1d')
+        ret = safe_call(self.ctx().get_north_finance_change, period)
+        if hasattr(ret, 'to_dict'):
+            ret = ret.to_dict()
+        if is_empty_result(ret):
+            raise HTTPError(503, "获取北向资金变化失败（数据未下载或不支持该周期）")
+        self.write(json.dumps({"period": period, "data": ret}, ensure_ascii=False, default=str))
+
+# ContextInfo.get_hkt_statistics() - 港通统计（个股）
+class HktStatisticsHandler(BaseHandler):
+    def post(self):
+        data = json.loads(self.request.body)
+        stock_code = data.get('stock_code', '')
+        ret = safe_call(self.ctx().get_hkt_statistics, stock_code)
+        if hasattr(ret, 'to_dict'):
+            ret = ret.to_dict()
+        if is_empty_result(ret):
+            raise HTTPError(503, "获取港通统计数据失败（数据未下载或该代码不支持）")
+        self.write(json.dumps({"stock_code": stock_code, "data": ret}, ensure_ascii=False, default=str))
+
+# ContextInfo.get_hkt_details() - 港通明细（个股，逐日）
+class HktDetailsHandler(BaseHandler):
+    def post(self):
+        data = json.loads(self.request.body)
+        stock_code = data.get('stock_code', '')
+        ret = safe_call(self.ctx().get_hkt_details, stock_code)
+        if hasattr(ret, 'to_dict'):
+            ret = ret.to_dict()
+        if is_empty_result(ret):
+            raise HTTPError(503, "获取港通明细失败（数据未下载或该代码不支持）")
+        self.write(json.dumps({"stock_code": stock_code, "data": ret}, ensure_ascii=False, default=str))
 
 # get_top10_share_holder() - 获取十大股东数据
 class Top10ShareHolderHandler(BaseHandler):
@@ -1533,6 +1579,9 @@ def make_app():
         (r"/api/data/bvol", BvolHandler),
         (r"/api/data/longhubang", LonghubangHandler),
         (r"/api/data/top10_share_holder", Top10ShareHolderHandler),
+        (r"/api/data/north_finance_change", NorthFinanceChangeHandler),
+        (r"/api/data/hkt_statistics", HktStatisticsHandler),
+        (r"/api/data/hkt_details", HktDetailsHandler),
         (r"/api/data/option_detail", OptionDetailHandler),
         (r"/api/data/turnover_rate", TurnoverRateHandler),
         (r"/api/data/etf_info", EtfInfoHandler),

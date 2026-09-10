@@ -2,7 +2,8 @@
 """BigQMT MCP Server - 基于 FastMCP 的迅投 QMT 量化交易服务。
 
 功能：把 QMT HTTP API（`bigqmt.service.http`，默认 127.0.0.1:10086）封装为 MCP 服务，
-暴露 53 个 tools + 2 个 resources，覆盖 A 股/期货/期权的行情查询、账户管理与交易执行。
+暴露 56 个 tools + 2 个 resources，覆盖 A 股/期货/期权的行情查询、账户管理、交易执行，
+以及北向资金/港通资金流（get_north_finance_change、get_hkt_statistics、get_hkt_details）。
 
 迁移来源：QMT/mcp_server/qmt_mcp_server.py（保持工具与资源集合不变）。
 配置见 `bigqmt.mcp.config`，HTTP 客户端见 `bigqmt.mcp.client`。
@@ -928,6 +929,63 @@ def get_turnover_rate(
         "stock_list": stock_list, "startTime": startTime,
         "endTime": endTime
     })
+    return {"timestamp": datetime.now().isoformat(), "data": result}
+
+
+@mcp.tool()
+def get_north_finance_change(period: str = '1d') -> Dict[str, Any]:
+    """
+    获取北向资金（陆股通）资金变化，市场级每日流入/流出
+
+    Args:
+        period: 周期，如 '1d'
+
+    Returns:
+        北向资金变化数据
+
+    Example:
+        >>> get_north_finance_change('1d')
+    """
+    client = get_client()
+    result = client.get_north_finance_change(period)
+    return {"timestamp": datetime.now().isoformat(), "data": result}
+
+
+@mcp.tool()
+def get_hkt_statistics(stock_code: str) -> Dict[str, Any]:
+    """
+    获取个股港通统计（沪/深股通持股与资金统计）
+
+    Args:
+        stock_code: 股票代码，如 '601899.SH'
+
+    Returns:
+        港通统计数据
+
+    Example:
+        >>> get_hkt_statistics('601899.SH')
+    """
+    client = get_client()
+    result = client.get_hkt_statistics(stock_code)
+    return {"timestamp": datetime.now().isoformat(), "data": result}
+
+
+@mcp.tool()
+def get_hkt_details(stock_code: str) -> Dict[str, Any]:
+    """
+    获取个股港通明细（逐日流入/流出）
+
+    Args:
+        stock_code: 股票代码，如 '601899.SH'
+
+    Returns:
+        港通逐日明细数据
+
+    Example:
+        >>> get_hkt_details('601899.SH')
+    """
+    client = get_client()
+    result = client.get_hkt_details(stock_code)
     return {"timestamp": datetime.now().isoformat(), "data": result}
 
 

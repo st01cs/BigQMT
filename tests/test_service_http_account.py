@@ -189,6 +189,69 @@ class RouteRegistrationTest(unittest.TestCase):
         self.assertIn("/api/sys/account_status", patterns)
         self.assertIn("/api/sys/python_version", patterns)
         self.assertIn("/api/money/total", patterns)
+        self.assertIn("/api/data/north_finance_change", patterns)
+        self.assertIn("/api/data/hkt_statistics", patterns)
+        self.assertIn("/api/data/hkt_details", patterns)
+
+
+@unittest.skipUnless(SERVICE_FILE.is_file(), "缺少 bigqmt/service/http.py")
+class FundFlowHandlerTest(unittest.TestCase):
+    """北向资金/港通三个 handler 的行为。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.module = load_service_module()
+
+    def _post(self, handler_cls, body, ctx):
+        captured = {}
+
+        class FakeHandler:
+            request = type("Req", (), {"body": json.dumps(body).encode()})()
+
+            def ctx(self):
+                return ctx
+
+            def write(self, payload):
+                captured["payload"] = payload
+
+        handler_cls.post(FakeHandler())
+        return json.loads(captured["payload"])
+
+    def test_north_finance_change_ok(self):
+        class Ctx:
+            def get_north_finance_change(self, period):
+                return {"20260910": -1234.5}
+
+        payload = self._post(
+            self.module.NorthFinanceChangeHandler, {"period": "1d"}, Ctx()
+        )
+        self.assertEqual(payload["period"], "1d")
+        self.assertIn("20260910", payload["data"])
+
+    def test_empty_result_raises_503(self):
+        class Ctx:
+            def get_north_finance_change(self, period):
+                return {}
+
+        with self.assertRaises(Exception) as ctx:
+            self._post(self.module.NorthFinanceChangeHandler, {}, Ctx())
+        self.assertEqual(getattr(ctx.exception, "status_code", None), 503)
+
+    def test_hkt_handlers_receive_stock_code(self):
+        seen = {}
+
+        class Ctx:
+            def get_hkt_statistics(self, code):
+                seen["stat"] = code
+                return {"hold": 1}
+
+            def get_hkt_details(self, code):
+                seen["detail"] = code
+                return [{"20260910": 1}]
+
+        self._post(self.module.HktStatisticsHandler, {"stock_code": "601899.SH"}, Ctx())
+        self._post(self.module.HktDetailsHandler, {"stock_code": "601899.SH"}, Ctx())
+        self.assertEqual(seen, {"stat": "601899.SH", "detail": "601899.SH"})
 
 
 @unittest.skipUnless(SERVICE_FILE.is_file(), "缺少 bigqmt/service/http.py")

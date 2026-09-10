@@ -38,6 +38,7 @@ EXPECTED_TOOLS = {
     "get_portfolio_info", "get_positions", "get_available_funds",
     "get_total_assets", "buy_stock", "sell_stock", "get_order_status",
     "cancel_all_orders",
+    "get_north_finance_change", "get_hkt_statistics", "get_hkt_details",
 }
 
 EXPECTED_RESOURCES = {"qmt://info/version", "qmt://info/pr_types"}
@@ -76,7 +77,7 @@ class McpRegistryTest(unittest.TestCase):
     def test_expected_tool_set_is_registered(self):
         names = {tool.name for tool in self._resolve(mcp_server.mcp.list_tools())}
         self.assertEqual(names, EXPECTED_TOOLS)
-        self.assertEqual(len(names), 53)
+        self.assertEqual(len(names), 56)
 
     def test_expected_resources_are_registered(self):
         uris = {str(r.uri) for r in self._resolve(mcp_server.mcp.list_resources())}
@@ -166,6 +167,19 @@ class McpToolContractTest(unittest.TestCase):
         set_client(_RecordingClient(raises=QMTApiError("boom", status_code=500)))
         with self.assertRaises(QMTApiError):
             mcp_server.get_total_assets()
+
+    def test_north_finance_change_delegates(self):
+        mcp_server.get_north_finance_change("1d")
+        self.assertEqual(self.client.calls[0][0], "get_north_finance_change")
+        self.assertEqual(self.client.calls[0][1], ("1d",))
+
+    def test_hkt_tools_delegate(self):
+        mcp_server.get_hkt_statistics("601899.SH")
+        mcp_server.get_hkt_details("601899.SH")
+        self.assertEqual(self.client.calls[0][0], "get_hkt_statistics")
+        self.assertEqual(self.client.calls[0][1], ("601899.SH",))
+        self.assertEqual(self.client.calls[1][0], "get_hkt_details")
+        self.assertEqual(self.client.calls[1][1], ("601899.SH",))
 
 
 @unittest.skipUnless(HAS_FASTMCP, "需要 fastmcp（pip install -e .[mcp]）")

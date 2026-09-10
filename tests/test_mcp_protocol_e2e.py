@@ -84,7 +84,7 @@ class McpProtocolE2ETest(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         tools = _messages(body)[0]["result"]["tools"]
-        self.assertEqual(len(tools), 53)
+        self.assertEqual(len(tools), 56)
         self.assertIn("get_stock_name", {t["name"] for t in tools})
 
     def test_resources_readable(self):

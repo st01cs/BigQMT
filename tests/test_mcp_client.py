@@ -136,6 +136,25 @@ class QMTClientRequestTest(unittest.TestCase):
         self.assertEqual(session.calls[0]["method"], "GET")
         self.assertTrue(session.calls[0]["url"].endswith("/api/sys/python_version"))
 
+    def test_fund_flow_endpoints_and_keys(self):
+        session = _FakeSession()
+        client = _client(session)
+        client.get_north_finance_change("1d")
+        client.get_hkt_statistics("601899.SH")
+        client.get_hkt_details("601899.SH")
+        paths = [call["url"].rsplit("10086", 1)[-1] for call in session.calls]
+        self.assertEqual(
+            paths,
+            [
+                "/api/data/north_finance_change",
+                "/api/data/hkt_statistics",
+                "/api/data/hkt_details",
+            ],
+        )
+        self.assertEqual(session.calls[0]["kwargs"]["json"], {"period": "1d"})
+        self.assertEqual(session.calls[1]["kwargs"]["json"], {"stock_code": "601899.SH"})
+        self.assertEqual(session.calls[2]["kwargs"]["json"], {"stock_code": "601899.SH"})
+
 
 class QMTClientErrorTest(unittest.TestCase):
     def test_http_error_raises_with_status(self):
