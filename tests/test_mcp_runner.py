@@ -137,6 +137,63 @@ class BuildRunnerTest(unittest.TestCase):
         self.assertFalse(Path(self.pid_file).exists())
 
 
+class FreePortTest(unittest.TestCase):
+    """端口兜底清理：venv 启动器的子进程有时杀不到，会一直占着端口。"""
+
+    NETSTAT = (
+        "  TCP    127.0.0.1:9000         0.0.0.0:0              LISTENING       1234\n"
+        "  TCP    127.0.0.1:9100         0.0.0.0:0              LISTENING       5678\n"
+        "  TCP    127.0.0.1:9000         127.0.0.1:5000         ESTABLISHED     9999\n"
+    )
+
+    def test_listening_pids_filters_by_port_and_state(self):
+        from bigqmt.core.qmt import cli
+
+        with mock.patch("subprocess.run") as run:
+            run.return_value = mock.Mock(stdout=self.NETSTAT)
+            self.assertEqual(cli._listening_pids(9000), [1234])
+            self.assertEqual(cli._listening_pids(9100), [5678])
+            self.assertEqual(cli._listening_pids(9999), [])
+
+    def test_listening_pids_handles_failure(self):
+        from bigqmt.core.qmt import cli
+
+        with mock.patch("subprocess.run", side_effect=OSError("no netstat")):
+            self.assertEqual(cli._listening_pids(9000), [])
+
+    def test_free_port_skips_self_and_kills_others(self):
+        import os
+
+        from bigqmt.core.qmt import cli
+
+        with mock.patch.object(cli, "_listening_pids", return_value=[1234, os.getpid()]):
+            with mock.patch("subprocess.run") as run:
+                run.return_value = mock.Mock(returncode=0)
+                killed, failed = cli._free_port(9000)
+        self.assertEqual(killed, [1234])
+        self.assertEqual(failed, [])
+        self.assertEqual(run.call_count, 1)
+        self.assertIn("taskkill", run.call_args[0][0])
+
+    def test_free_port_reports_kill_failure(self):
+        from bigqmt.core.qmt import cli
+
+        with mock.patch.object(cli, "_listening_pids", return_value=[1234]):
+            with mock.patch("subprocess.run", side_effect=OSError("denied")):
+                killed, failed = cli._free_port(9000)
+        self.assertEqual(killed, [])
+        self.assertEqual(failed, [1234])
+
+    def test_free_port_reports_nonzero_returncode(self):
+        from bigqmt.core.qmt import cli
+
+        with mock.patch.object(cli, "_listening_pids", return_value=[1234]):
+            with mock.patch("subprocess.run", return_value=mock.Mock(returncode=1)):
+                killed, failed = cli._free_port(9000)
+        self.assertEqual(killed, [])
+        self.assertEqual(failed, [1234])
+
+
 class ProbeQmtBackendTest(unittest.TestCase):
     def test_available(self):
         class FakeClient:

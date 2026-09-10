@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -127,6 +128,57 @@ def _read_pid_file(pid_file) -> Optional[int]:
         return None
 
 
+def _listening_pids(port: int) -> list:
+    """返回监听指定端口的 PID 列表（netstat 解析，Windows）。"""
+    try:
+        completed = subprocess.run(
+            ["netstat", "-ano"], capture_output=True, text=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pids = []
+    for line in (completed.stdout or "").splitlines():
+        parts = line.split()
+        if len(parts) < 5 or parts[0].upper() != "TCP":
+            continue
+        if parts[3].upper() != "LISTENING":
+            continue
+        if not parts[1].endswith(":%d" % port):
+            continue
+        try:
+            pids.append(int(parts[4]))
+        except ValueError:
+            continue
+    return sorted(set(pids))
+
+
+def _free_port(port: int) -> tuple:
+    """清理仍占用端口且不是本进程的遗留进程，返回 (已终止, 未能终止) 两个 PID 列表。
+
+    Windows 下 venv 的 python.exe 是启动器，会再拉起真正的解释器进程；
+    仅按 PID 文件 taskkill /T 有时杀不到被重新挂载的子进程，
+    结果端口仍被占用、新实例绑定失败（WinError 10048）。
+    """
+    killed = []
+    failed = []
+    for pid in _listening_pids(port):
+        if pid == os.getpid():
+            continue
+        try:
+            completed = subprocess.run(
+                ["taskkill", "/PID", str(pid), "/T", "/F"],
+                capture_output=True,
+                timeout=15,
+            )
+            if getattr(completed, "returncode", 1) == 0:
+                killed.append(pid)
+            else:
+                failed.append(pid)
+        except (OSError, subprocess.SubprocessError):
+            failed.append(pid)
+    return killed, failed
+
+
 def _warn_if_backend_down(config) -> bool:
     """探测 QMT 侧 HTTP API；不可用时给出可操作的提示。返回是否可用。"""
     from bigqmt.mcp.runner import probe_qmt_backend
@@ -206,12 +258,28 @@ def _cmd_mcp(args) -> int:
 
     if action == "stop":
         runner.stop_external()
+        killed, failed = _free_port(config.port)
+        if killed:
+            print(f"[bigqmt] 已清理仍占用端口 {config.port} 的遗留进程: {killed}")
+        if failed:
+            print(
+                f"[bigqmt] 警告：无法终止占用端口 {config.port} 的进程 {failed}"
+                "（可能权限不足），请手动结束后重试"
+            )
         print("[bigqmt] MCP 服务已停止")
         return 0
 
     if action in ("start", "restart"):
         if action == "restart":
             runner.stop_external()
+            killed, failed = _free_port(config.port)
+            if killed:
+                print(f"[bigqmt] 已清理仍占用端口 {config.port} 的遗留进程: {killed}")
+            if failed:
+                print(
+                    f"[bigqmt] 警告：端口 {config.port} 仍被进程 {failed} 占用"
+                    "（无法终止，可能权限不足），请手动结束后重试"
+                )
         elif runner.is_running():
             # 守护进程语义：已在运行视为成功（不重复拉起）
             pid = _read_pid_file(runner.status()["pid_file"]) or runner.status()["pid"]
@@ -222,6 +290,16 @@ def _cmd_mcp(args) -> int:
             if not args.skip_qmt_check:
                 _warn_if_backend_down(config)
             return 0
+        else:
+            # 上次异常退出可能留下占用端口的子进程，先清理再拉起
+            killed, failed = _free_port(config.port)
+            if killed:
+                print(f"[bigqmt] 已清理仍占用端口 {config.port} 的遗留进程: {killed}")
+            if failed:
+                print(
+                    f"[bigqmt] 警告：端口 {config.port} 仍被进程 {failed} 占用"
+                    "（无法终止，可能权限不足），请手动结束后重试"
+                )
 
         if not args.skip_qmt_check:
             _warn_if_backend_down(config)
