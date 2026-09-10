@@ -6,7 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.ascii_safe_source import convert_file, to_ascii
+from scripts.ascii_safe_source import (
+    convert_file,
+    convert_text,
+    to_ascii,
+    with_coding_declaration,
+)
 
 SERVICE_FILE = Path(__file__).resolve().parents[1] / "bigqmt" / "service" / "http.py"
 
@@ -57,6 +62,62 @@ class ConvertFileTest(unittest.TestCase):
             scope = {}
             exec(raw.decode("ascii"), scope)  # noqa: S102 - 测试用受控源码
             self.assertEqual(scope["V"], "值")
+
+
+class EncodingModeTest(unittest.TestCase):
+    SOURCE = "# -*- coding: utf-8 -*-\nX = '中文值'\n"
+
+    def test_declaration_is_rewritten(self):
+        self.assertTrue(
+            with_coding_declaration(self.SOURCE, "gbk").startswith("# -*- coding: gbk -*-")
+        )
+        self.assertEqual(with_coding_declaration("X = 1\n", "gbk"), "X = 1\n")
+
+    def test_declaration_keeps_crlf(self):
+        text = "# -*- coding: utf-8 -*-\r\nX = 1\r\n"
+        converted = with_coding_declaration(text, "gbk")
+        self.assertTrue(converted.startswith("# -*- coding: gbk -*-\r\n"))
+
+    def test_ascii_mode_is_transcode_immune(self):
+        out = convert_text(self.SOURCE, "ascii")
+        self.assertTrue(out.isascii())
+        # 纯 ASCII 在 GBK 与 UTF-8 下解码结果完全一致
+        data = out.encode("ascii")
+        self.assertEqual(data.decode("gbk"), out)
+        self.assertEqual(data.decode("utf-8"), out)
+        scope = {}
+        exec(out, scope)  # noqa: S102 - 测试用受控源码
+        self.assertEqual(scope["X"], "中文值")
+
+    def test_gbk_mode_keeps_chinese_readable(self):
+        out = convert_text(self.SOURCE, "gbk")
+        self.assertIn("coding: gbk", out.splitlines()[0])
+        data = out.encode("gbk")
+        self.assertEqual(data.decode("gbk"), out)
+        self.assertIn("'中文值'", out)
+
+    def test_gbk_roundtrip_exec_preserves_value(self):
+        out = convert_text(self.SOURCE, "gbk")
+        scope = {}
+        exec(out.encode("gbk").decode("gbk"), scope)  # noqa: S102 - 测试用受控源码
+        self.assertEqual(scope["X"], "中文值")
+
+    def test_gbk_unrepresentable_char_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "a.py"
+            src.write_text("# -*- coding: utf-8 -*-\nX = '\U0001f642'\n", encoding="utf-8")
+            with self.assertRaises(UnicodeEncodeError) as ctx:
+                convert_file(src, Path(tmp) / "b.py", "gbk")
+            self.assertIn("ascii", str(ctx.exception))
+
+    def test_utf8_mode_writes_utf8(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "a.py"
+            src.write_text(self.SOURCE, encoding="utf-8")
+            dst = Path(tmp) / "b.py"
+            convert_file(src, dst, "utf-8")
+            raw = dst.read_bytes()
+            self.assertEqual(raw.decode("utf-8"), self.SOURCE)
 
 
 def _install_tornado_stub():
@@ -120,6 +181,10 @@ class ServiceEquivalenceTest(unittest.TestCase):
         cls.original = _load(SERVICE_FILE, "svc_original")
         cls.ascii_version = _load(converted, "svc_ascii")
         cls.raw_ascii = converted.read_bytes()
+        gbk_path = Path(cls.tmp.name) / "http_gbk.py"
+        convert_file(SERVICE_FILE, gbk_path, "gbk")
+        cls.gbk_version = _load(gbk_path, "svc_gbk")
+        cls.raw_gbk = gbk_path.read_bytes()
 
     def test_converted_file_is_pure_ascii(self):
         self.assertTrue(all(b < 128 for b in self.raw_ascii))
@@ -156,6 +221,32 @@ class ServiceEquivalenceTest(unittest.TestCase):
 
     def test_syntax_error_free(self):
         compile(self.raw_ascii.decode("ascii"), "<ascii_safe>", "exec")
+
+    def test_gbk_version_is_gbk_and_readable(self):
+        # 真 GBK：按 gbk 解码成功，且中文不是乱码
+        text = self.raw_gbk.decode("gbk")
+        self.assertIn("# -*- coding: gbk -*-", text.splitlines()[0])
+        self.assertIn("你的QMT账号", text)
+
+    def test_gbk_version_behaves_identically(self):
+        for value in ("8887920826", "", "你的QMT账号", "abc"):
+            self.assertEqual(
+                self.original.check_account_id(value),
+                self.gbk_version.check_account_id(value),
+                value,
+            )
+        self.assertEqual(
+            self.original.account_status(""), self.gbk_version.account_status("")
+        )
+        self.assertEqual(
+            {route[0] for route in self.original.make_app().routes},
+            {route[0] for route in self.gbk_version.make_app().routes},
+        )
+
+    def test_gbk_version_parses_as_python36(self):
+        import ast
+
+        ast.parse(self.raw_gbk.decode("gbk"), feature_version=(3, 6))
 
 
 if __name__ == "__main__":
