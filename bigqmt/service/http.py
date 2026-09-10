@@ -155,6 +155,21 @@ def is_empty_result(value):
         return False
 
 
+#: `/api/data/query` 允许调用的只读方法白名单。
+#: 只收录「查询/读取」类方法；任何下单、撤单、任务控制、参数设置类方法都不在此列。
+READONLY_CTX_METHODS = (
+    'get_close_price', 'get_last_close', 'get_market_data_ex_ori', 'subscribe_whole_quote',
+    'get_finance', 'get_raw_financial_data', 'get_float_caps', 'get_holder_num',
+    'get_smallcap', 'get_midcap', 'get_largecap',
+    'is_stock', 'is_future', 'is_fund', 'get_stock_type', 'get_ETF_list',
+    'get_option_undl', 'stockcode_in_rzrk',
+    'get_net_value', 'get_product_asset_value', 'get_product_share',
+    'get_product_init_share', 'get_scale_and_rank', 'get_scale_and_stock',
+    'get_back_test_index', 'get_commission', 'get_slippage',
+    'load_stk_list', 'load_stk_vol_list', 'get_turn_over_rate',
+)
+
+
 def log_startup_self_check():
     """启动自检：账号配置 + 交易账号连通性。只写日志，不阻断服务启动。"""
     ok, message = check_account_id(ACCOUNT_ID)
@@ -568,6 +583,29 @@ class HktDetailsHandler(BaseHandler):
             raise HTTPError(503, "获取港通明细失败（数据未下载或该代码不支持）")
         self.write(json.dumps({"stock_code": stock_code, "data": ret}, ensure_ascii=False, default=str))
 
+# 通用只读数据查询：白名单内的 ContextInfo 方法
+class QueryHandler(BaseHandler):
+    def post(self):
+        data = json.loads(self.request.body)
+        method = data.get('method', '')
+        if method not in READONLY_CTX_METHODS:
+            raise HTTPError(400, "不支持的数据方法：%s（仅允许只读查询）" % method)
+        func = getattr(self.ctx(), method, None)
+        if func is None:
+            raise HTTPError(503, "当前 QMT 环境没有该接口：%s" % method)
+        args = data.get('args') or []
+        if not isinstance(args, list):
+            raise HTTPError(400, "args 必须是数组")
+        kwargs = data.get('kwargs') or {}
+        if not isinstance(kwargs, dict):
+            raise HTTPError(400, "kwargs 必须是对象")
+        ret = safe_call(func, *args, **kwargs)
+        if hasattr(ret, 'to_dict'):
+            ret = ret.to_dict()
+        if is_empty_result(ret):
+            raise HTTPError(503, "%s 返回空（数据未下载或参数不符）" % method)
+        self.write(json.dumps({"method": method, "data": ret}, ensure_ascii=False, default=str))
+
 # get_top10_share_holder() - 获取十大股东数据
 class Top10ShareHolderHandler(BaseHandler):
     def post(self):
@@ -855,265 +893,6 @@ class GetIndustryNameOfStockHandler(BaseHandler):
         self.write(json.dumps({"industryType": industryType, "stockcode": stockcode, "industry_name": ret}, ensure_ascii=False))
 
 
-# ============= 4. 交易函数 =============
-# passorder() - 综合交易下单(支持股票买卖等)
-class PassorderHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            opType = int(data['opType'])
-            orderType = int(data.get('orderType', 1101))
-            stock = data['stock']
-            pr_type = int(data.get('prType', 11))
-            price = float(data['price'])
-            volume = int(data['volume'])
-            quickTrade = int(data.get('quickTrade', 2))
-            order_ref = passorder(opType, orderType, self.acc(), stock, pr_type, price, volume, 'qmt', quickTrade, self.ctx())
-            self.write(json.dumps({
-                "status": "success",
-                "opType": opType,
-                "stock": stock,
-                "order_ref": str(order_ref) if order_ref else "unknown"
-            }, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("passorder下单异常")
-            raise HTTPError(400, f"下单失败: {str(e)}")
-
-# algo_passorder() - 算法交易下单
-class AlgoPassorderHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            order_ref = algo_passorder(
-                int(data['opType']), int(data.get('orderType', 1101)),
-                self.acc(), data['stock'], int(data.get('prType', -1)),
-                float(data['price']), int(data['volume']),
-                data.get('strategyName', ''), int(data.get('quickTrade', 2)),
-                data.get('userOrderId', ''), data.get('userOrderParam', {}),
-                self.ctx()
-            )
-            self.write(json.dumps({"status": "success", "order_ref": str(order_ref) if order_ref else "unknown"}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("algo_passorder异常")
-            raise HTTPError(400, f"算法下单失败: {str(e)}")
-
-# smart_algo_passorder() - 智能算法交易下单
-class SmartAlgoPassorderHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            order_ref = smart_algo_passorder(
-                int(data['opType']), int(data.get('orderType', 1101)),
-                self.acc(), data['stock'], int(data.get('prType', -1)),
-                float(data['price']), int(data['volume']),
-                data['smartAlgoType'], int(data.get('limitOverRate', 0)),
-                int(data.get('minAmountPerOrder', 0)),
-                data.get('startTime', ''), data.get('endTime', ''),
-                self.ctx()
-            )
-            self.write(json.dumps({"status": "success", "order_ref": str(order_ref) if order_ref else "unknown"}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("smart_algo_passorder异常")
-            raise HTTPError(400, f"智能算法下单失败: {str(e)}")
-
-# order_lots() - 指定手数交易
-class OrderLotsHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            order_lots(data['stock'], int(data['lots']), data.get('style', 'LATEST'),
-                       float(data.get('price', 0)), self.ctx(), data.get('accId', self.acc()))
-            self.write(json.dumps({"status": "success", "action": "order_lots", "stock": data['stock']}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("order_lots异常")
-            raise HTTPError(400, f"下单失败: {str(e)}")
-
-# order_value() - 指定价值交易
-class OrderValueHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            order_value(data['stock'], float(data['value']), data.get('style', 'LATEST'),
-                        float(data.get('price', 0)), self.ctx(), data.get('accId', self.acc()))
-            self.write(json.dumps({"status": "success", "action": "order_value", "stock": data['stock']}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("order_value异常")
-            raise HTTPError(400, f"下单失败: {str(e)}")
-
-# order_percent() - 指定比例交易
-class OrderPercentHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            order_percent(data['stock'], float(data['percent']), data.get('style', 'LATEST'),
-                          float(data.get('price', 0)), self.ctx(), data.get('accId', self.acc()))
-            self.write(json.dumps({"status": "success", "action": "order_percent", "stock": data['stock']}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("order_percent异常")
-            raise HTTPError(400, f"下单失败: {str(e)}")
-
-# order_target_value() - 指定目标价值交易
-class OrderTargetValueHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            order_target_value(data['stock'], float(data['tar_value']), data.get('style', 'LATEST'),
-                               float(data.get('price', 0)), self.ctx(), data.get('accId', self.acc()))
-            self.write(json.dumps({"status": "success", "action": "order_target_value", "stock": data['stock']}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("order_target_value异常")
-            raise HTTPError(400, f"下单失败: {str(e)}")
-
-# order_target_percent() - 指定目标比例交易
-class OrderTargetPercentHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            order_target_percent(data['stock'], float(data['tar_percent']), data.get('style', 'LATEST'),
-                                 float(data.get('price', 0)), self.ctx(), data.get('accId', self.acc()))
-            self.write(json.dumps({"status": "success", "action": "order_target_percent", "stock": data['stock']}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("order_target_percent异常")
-            raise HTTPError(400, f"下单失败: {str(e)}")
-
-# order_shares() - 指定股数交易
-class OrderSharesHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            order_shares(data['stock'], int(data['shares']), data.get('style', 'LATEST'),
-                         float(data.get('price', 0)), self.ctx(), data.get('accId', self.acc()))
-            self.write(json.dumps({"status": "success", "action": "order_shares", "stock": data['stock']}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("order_shares异常")
-            raise HTTPError(400, f"下单失败: {str(e)}")
-
-
-# ============= 5. 期货交易 =============
-# buy_open() - 期货买入开仓
-class FuturesBuyOpenHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            buy_open(data['stock'], int(data['amount']), data.get('style', 'LATEST'),
-                     float(data.get('price', 0)), self.ctx(), data.get('accId', self.acc()))
-            self.write(json.dumps({"status": "success", "action": "buy_open", "stock": data['stock']}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("buy_open异常")
-            raise HTTPError(400, f"期货买入开仓失败: {str(e)}")
-
-# buy_close_tdayfirst() - 期货买入平仓(平今优先)
-class FuturesBuyCloseTdayFirstHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            buy_close_tdayfirst(data['stock'], int(data['amount']), data.get('style', 'LATEST'),
-                                float(data.get('price', 0)), self.ctx(), data.get('accId', self.acc()))
-            self.write(json.dumps({"status": "success", "action": "buy_close_tdayfirst", "stock": data['stock']}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("buy_close_tdayfirst异常")
-            raise HTTPError(400, f"期货买入平仓(平今)失败: {str(e)}")
-
-# buy_close_ydayfirst() - 期货买入平仓(平昨优先)
-class FuturesBuyCloseYdayFirstHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            buy_close_ydayfirst(data['stock'], int(data['amount']), data.get('style', 'LATEST'),
-                                float(data.get('price', 0)), self.ctx(), data.get('accId', self.acc()))
-            self.write(json.dumps({"status": "success", "action": "buy_close_ydayfirst", "stock": data['stock']}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("buy_close_ydayfirst异常")
-            raise HTTPError(400, f"期货买入平仓(平昨)失败: {str(e)}")
-
-# sell_open() - 期货卖出开仓
-class FuturesSellOpenHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            sell_open(data['stock'], int(data['amount']), data.get('style', 'LATEST'),
-                      float(data.get('price', 0)), self.ctx(), data.get('accId', self.acc()))
-            self.write(json.dumps({"status": "success", "action": "sell_open", "stock": data['stock']}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("sell_open异常")
-            raise HTTPError(400, f"期货卖出开仓失败: {str(e)}")
-
-# sell_close_tdayfirst() - 期货卖出平仓(平今优先)
-class FuturesSellCloseTdayFirstHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            sell_close_tdayfirst(data['stock'], int(data['amount']), data.get('style', 'LATEST'),
-                                 float(data.get('price', 0)), self.ctx(), data.get('accId', self.acc()))
-            self.write(json.dumps({"status": "success", "action": "sell_close_tdayfirst", "stock": data['stock']}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("sell_close_tdayfirst异常")
-            raise HTTPError(400, f"期货卖出平仓(平今)失败: {str(e)}")
-
-# sell_close_ydayfirst() - 期货卖出平仓(平昨优先)
-class FuturesSellCloseYdayFirstHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            sell_close_ydayfirst(data['stock'], int(data['amount']), data.get('style', 'LATEST'),
-                                 float(data.get('price', 0)), self.ctx(), data.get('accId', self.acc()))
-            self.write(json.dumps({"status": "success", "action": "sell_close_ydayfirst", "stock": data['stock']}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("sell_close_ydayfirst异常")
-            raise HTTPError(400, f"期货卖出平仓(平昨)失败: {str(e)}")
-
-
-# ============= 6. 任务管理 =============
-# cancel_task() - 撤销任务
-class CancelTaskHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            taskId = data['taskId']
-            accountType = data.get('accountType', 'stock')
-            ret = cancel_task(taskId, self.acc(), accountType, self.ctx())
-            self.write(json.dumps({"status": "success" if ret else "failed", "taskId": taskId}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("cancel_task异常")
-            raise HTTPError(400, f"撤销任务失败: {str(e)}")
-
-# pause_task() - 暂停任务
-class PauseTaskHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            taskId = data['taskId']
-            accountType = data.get('accountType', 'stock')
-            ret = pause_task(taskId, self.acc(), accountType, self.ctx())
-            self.write(json.dumps({"status": "success" if ret else "failed", "taskId": taskId}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("pause_task异常")
-            raise HTTPError(400, f"暂停任务失败: {str(e)}")
-
-# resume_task() - 继续任务
-class ResumeTaskHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            taskId = data['taskId']
-            accountType = data.get('accountType', 'stock')
-            ret = resume_task(taskId, self.acc(), accountType, self.ctx())
-            self.write(json.dumps({"status": "success" if ret else "failed", "taskId": taskId}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("resume_task异常")
-            raise HTTPError(400, f"继续任务失败: {str(e)}")
-
-# do_order() - 实时触发前一根bar信号函数
-class DoOrderHandler(BaseHandler):
-    def post(self):
-        try:
-            do_order(self.ctx())
-            self.write(json.dumps({"status": "success", "message": "信号已触发"}, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("do_order异常")
-            raise HTTPError(400, f"触发信号失败: {str(e)}")
-
-
 # ============= 7. 账户/订单查询 =============
 # get_trade_detail_data() - 获取交易明细(持仓/委托/成交/资金)
 class TradeDetailDataHandler(BaseHandler):
@@ -1166,15 +945,6 @@ class LastOrderIdHandler(BaseHandler):
         datatype = data.get('datatype', 'ORDER')
         ret = safe_call(get_last_order_id, self.acc(), account, datatype, 'qmt')
         self.write(json.dumps({"last_order_id": ret}, ensure_ascii=False))
-
-# can_cancel_order() - 查询委托是否可撤销
-class CanCancelOrderHandler(BaseHandler):
-    def post(self):
-        data = json.loads(self.request.body)
-        orderId = data.get('orderId', '')
-        accountType = data.get('accountType', 'stock')
-        ret = safe_call(can_cancel_order, orderId, self.acc(), accountType)
-        self.write(json.dumps({"orderId": orderId, "can_cancel": ret}, ensure_ascii=False))
 
 # get_debt_contract() - 获取两融负债合约明细
 class DebtContractHandler(BaseHandler):
@@ -1361,42 +1131,6 @@ class AvailableMoneyHandler(BaseHandler):
             )
         self.write(json.dumps({"available_money": round(info.m_dAvailable, 2)}, ensure_ascii=False))
 
-# passorder(23) - 简化买入下单(封装passorder)
-class BuyHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            stock = data['stock']
-            price = float(data['price'])
-            volume = int(data['volume'])
-            pr_type = data.get('prType', 11)
-            order_ref = passorder(23, 1101, self.acc(), stock, pr_type, price, volume, 'qmt', 2, self.ctx())
-            self.write(json.dumps({
-                "status": "success", "action": "buy", "stock": stock,
-                "order_ref": str(order_ref) if order_ref else "unknown"
-            }, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("买入下单异常")
-            raise HTTPError(400, f"下单失败: {str(e)}")
-
-# passorder(24) - 简化卖出下单(封装passorder)
-class SellHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            stock = data['stock']
-            price = float(data['price'])
-            volume = int(data['volume'])
-            pr_type = data.get('prType', 11)
-            order_ref = passorder(24, 1101, self.acc(), stock, pr_type, price, volume, 'qmt', 2, self.ctx())
-            self.write(json.dumps({
-                "status": "success", "action": "sell", "stock": stock,
-                "order_ref": str(order_ref) if order_ref else "unknown"
-            }, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("卖出下单异常")
-            raise HTTPError(400, f"下单失败: {str(e)}")
-
 # get_trade_detail_data('order') - 查询委托状态列表
 class OrderStatusHandler(BaseHandler):
     def post(self):
@@ -1413,64 +1147,6 @@ class OrderStatusHandler(BaseHandler):
                 "volume_traded": order.m_nVolumeTraded,
             })
         self.write(json.dumps({"orders": rets}, ensure_ascii=False))
-
-# cancel() - 全部撤单
-class CancelAllHandler(BaseHandler):
-    def post(self):
-        require_account(self)
-        try:
-            data = json.loads(self.request.body)
-            account = data.get('account', 'stock')
-            orders = safe_call(get_trade_detail_data, self.acc(), account, 'order', 'qmt') or []
-            canceled_list = []
-            for order in orders:
-                if can_cancel_order(order.m_strOrderSysID, self.acc(), account):
-                    cancel(order.m_strOrderSysID, self.acc(), account, self.ctx())
-                    canceled_list.append({
-                        "order_sys_id": order.m_strOrderSysID,
-                        "stock": order.m_strInstrumentID,
-                        "volume_left": order.m_nVolumeTotal
-                    })
-            self.write(json.dumps({
-                "status": "success",
-                "message": f"已发出 {len(canceled_list)} 笔撤单请求",
-                "canceled_orders": canceled_list
-            }, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("全部撤单异常")
-            raise HTTPError(500, f"撤单失败: {str(e)}")
-
-
-class CancelByRuleHandler(BaseHandler):
-    def post(self):
-        try:
-            data = json.loads(self.request.body)
-            stock = data.get('stock')
-            cancel_volume = int(data.get('volume', 0))
-            account = data.get('account', 'stock')
-            if not stock or cancel_volume <= 0:
-                raise HTTPError(400, "参数错误：必须提供 stock 且 volume > 0")
-            orders = safe_call(get_trade_detail_data, self.acc(), account, 'order', 'qmt') or []
-            target_orders = []
-            for order in orders:
-                order_code = f"{order.m_strInstrumentID}.{order.m_strExchangeID}"
-                if order.m_nVolumeTotal + order.m_nVolumeTraded == cancel_volume and order_code == stock and can_cancel_order(order.m_strOrderSysID, self.acc(), account):
-                    target_orders.append(order)
-            if not target_orders:
-                self.write(json.dumps({"status": "failed", "message": "未找到符合条件的活跃订单"}, ensure_ascii=False))
-                return
-            canceled_ids = []
-            for t_order in target_orders:
-                cancel(t_order.m_strOrderSysID, self.acc(), account, self.ctx())
-                canceled_ids.append(t_order.m_strOrderSysID)
-            self.write(json.dumps({
-                "status": "success",
-                "message": f"匹配到 {len(target_orders)} 笔订单并发出撤单请求",
-                "canceled_sys_ids": canceled_ids
-            }, ensure_ascii=False))
-        except Exception as e:
-            logger.exception("规则撤单异常")
-            raise HTTPError(500, f"撤单失败: {str(e)}")
 
 # cancel() - 按股票+数量匹配规则撤单
 # sys: Python版本信息
@@ -1534,11 +1210,7 @@ def make_app():
         (r"/api/holding", HoldingHandler),
         (r"/api/money/total", TotalMoneyHandler),
         (r"/api/money/available", AvailableMoneyHandler),
-        (r"/api/order/buy", BuyHandler),
-        (r"/api/order/sell", SellHandler),
         (r"/api/order/status", OrderStatusHandler),
-        (r"/api/order/cancel_all", CancelAllHandler),
-        (r"/api/order/cancel_order", CancelByRuleHandler),
         (r"/api/order/deal", DealHandler),
 
         # ContextInfo 属性
@@ -1582,6 +1254,7 @@ def make_app():
         (r"/api/data/north_finance_change", NorthFinanceChangeHandler),
         (r"/api/data/hkt_statistics", HktStatisticsHandler),
         (r"/api/data/hkt_details", HktDetailsHandler),
+        (r"/api/data/query", QueryHandler),
         (r"/api/data/option_detail", OptionDetailHandler),
         (r"/api/data/turnover_rate", TurnoverRateHandler),
         (r"/api/data/etf_info", EtfInfoHandler),
@@ -1613,36 +1286,10 @@ def make_app():
         (r"/api/check/is_typed_stock", IsTypedStockHandler),
         (r"/api/check/get_industry_name_of_stock", GetIndustryNameOfStockHandler),
 
-        # 交易
-        (r"/api/trade/passorder", PassorderHandler),
-        (r"/api/trade/algo_passorder", AlgoPassorderHandler),
-        (r"/api/trade/smart_algo_passorder", SmartAlgoPassorderHandler),
-        (r"/api/trade/order_lots", OrderLotsHandler),
-        (r"/api/trade/order_value", OrderValueHandler),
-        (r"/api/trade/order_percent", OrderPercentHandler),
-        (r"/api/trade/order_target_value", OrderTargetValueHandler),
-        (r"/api/trade/order_target_percent", OrderTargetPercentHandler),
-        (r"/api/trade/order_shares", OrderSharesHandler),
-
-        # 期货交易
-        (r"/api/trade/futures/buy_open", FuturesBuyOpenHandler),
-        (r"/api/trade/futures/buy_close_tdayfirst", FuturesBuyCloseTdayFirstHandler),
-        (r"/api/trade/futures/buy_close_ydayfirst", FuturesBuyCloseYdayFirstHandler),
-        (r"/api/trade/futures/sell_open", FuturesSellOpenHandler),
-        (r"/api/trade/futures/sell_close_tdayfirst", FuturesSellCloseTdayFirstHandler),
-        (r"/api/trade/futures/sell_close_ydayfirst", FuturesSellCloseYdayFirstHandler),
-
-        # 任务管理
-        (r"/api/trade/cancel_task", CancelTaskHandler),
-        (r"/api/trade/pause_task", PauseTaskHandler),
-        (r"/api/trade/resume_task", ResumeTaskHandler),
-        (r"/api/trade/do_order", DoOrderHandler),
-
-        # 账户/订单查询
+        # 账户/订单查询（只读：成交明细、委托查询、两融查询、打新数据）
         (r"/api/trade/trade_detail_data", TradeDetailDataHandler),
         (r"/api/trade/value_by_order_id", ValueByOrderIdHandler),
         (r"/api/trade/last_order_id", LastOrderIdHandler),
-        (r"/api/trade/can_cancel_order", CanCancelOrderHandler),
         (r"/api/trade/debt_contract", DebtContractHandler),
         (r"/api/trade/assure_contract", AssureContractHandler),
         (r"/api/trade/enable_short_contract", EnableShortContractHandler),

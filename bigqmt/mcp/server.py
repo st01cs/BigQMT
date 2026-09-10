@@ -53,6 +53,41 @@ def _resolve_market(stockcode: str, market: str = "") -> str:
             return suffix
     return "SH"
 
+
+def _ctx_query(method: str, *args, **kwargs) -> Dict[str, Any]:
+    """调用后端只读数据接口 /api/data/query（白名单方法，见 READONLY_CTX_METHODS）。"""
+    client = get_client()
+    result = client.query_ctx(method, *args, **kwargs)
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "method": method,
+        "data": result,
+    }
+
+
+def _as_list(value):
+    """把逗号字符串或列表统一成列表（QMT 侧方法多要求 list）。"""
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(',') if item.strip()]
+    return list(value)
+
+
+#: 策略上下文属性（对应 /api/context/<field>）
+_CONTEXT_FIELDS = (
+    "period",
+    "barpos",
+    "time_tick_size",
+    "stockcode",
+    "dividend_type",
+    "market",
+    "do_back_test",
+    "benchmark",
+    "capital",
+    "universe",
+)
+
 # ===================================
 # MCP Tools - 数据查询类（基础数据）
 # ===================================
@@ -1168,84 +1203,6 @@ def get_total_assets(account: str = 'stock') -> Dict[str, Any]:
 
 
 # ===================================
-# MCP Tools - 交易执行类
-# ===================================
-
-@mcp.tool()
-def buy_stock(
-    stock: str,
-    price: float,
-    volume: int,
-    pr_type: int = 11
-) -> Dict[str, Any]:
-    """
-    买入股票
-    
-    Args:
-        stock: 股票代码，如 '600000.SH'
-        price: 委托价格（pr_type=11 时为指定价）
-        volume: 买入数量（股/手）
-        pr_type: 选价类型，默认 11（指定价）
-                 0-10: 卖5到买5档位价
-                 12: 涨跌停价
-                 14: 对手价
-                 42-49: 多种市价策略
-    
-    Returns:
-        委托结果（委托编号/状态/成交情况）
-    
-    Warning:
-        危险操作：请确认价格、数量后再执行！
-    """
-    client = get_client()
-    result = client.buy_stock(stock, price, volume, pr_type)
-    return {
-        "timestamp": datetime.now().isoformat(),
-        "action": "BUY",
-        "stock": stock,
-        "price": price,
-        "volume": volume,
-        "pr_type": pr_type,
-        "data": result
-    }
-
-
-@mcp.tool()
-def sell_stock(
-    stock: str,
-    price: float,
-    volume: int,
-    pr_type: int = 11
-) -> Dict[str, Any]:
-    """
-    卖出股票
-    
-    Args:
-        stock: 股票代码
-        price: 委托价格
-        volume: 卖出数量
-        pr_type: 选价类型
-    
-    Returns:
-        委托结果
-    
-    Warning:
-        危险操作：请确认价格、数量后再执行！
-    """
-    client = get_client()
-    result = client.sell_stock(stock, price, volume, pr_type)
-    return {
-        "timestamp": datetime.now().isoformat(),
-        "action": "SELL",
-        "stock": stock,
-        "price": price,
-        "volume": volume,
-        "pr_type": pr_type,
-        "data": result
-    }
-
-
-# ===================================
 # MCP Tools - 订单管理类
 # ===================================
 
@@ -1269,28 +1226,752 @@ def get_order_status(account: str = 'stock') -> Dict[str, Any]:
     }
 
 
+# ===================================
+# MCP Tools - 只读查询（策略上下文/账户/扩展数据/标的判断）
+# ===================================
+
 @mcp.tool()
-def cancel_all_orders(account: str = 'stock') -> Dict[str, Any]:
+def get_context_info(fields: List[str] = None) -> Dict[str, Any]:
     """
-    一键撤销所有活跃订单（危险操作）
-    
+    获取当前策略上下文属性（周期/持仓索引/市场/标的/基准/资金等，只读）
+
     Args:
-        account: 账户类型
-    
+        fields: 需要读取的字段；留空返回全部。可选：period、barpos、
+                time_tick_size、stockcode、dividend_type、market、
+                do_back_test、benchmark、capital、universe
+
     Returns:
-        撤单结果
-    
-    Warning:
-        危险操作：将撤销所有未成交订单！
+        各上下文属性的当前值（单项读取失败会在该项内附 error）
+
+    Example:
+        >>> get_context_info(['period', 'market'])
     """
     client = get_client()
-    result = client.cancel_all_orders(account)
+    wanted = list(fields) if fields else list(_CONTEXT_FIELDS)
+    data: Dict[str, Any] = {}
+    for field in wanted:
+        try:
+            data[field] = client.get_context_value(field)
+        except QMTApiError as exc:
+            data[field] = {"error": str(exc)}
+    return {"timestamp": datetime.now().isoformat(), "data": data}
+
+
+@mcp.tool()
+def get_account_status() -> Dict[str, Any]:
+    """
+    获取交易账号配置与连通性自检结果（账号已脱敏，只读）
+
+    Returns:
+        configured / reachable / message，可用时附带总资产与可用资金
+
+    Example:
+        >>> get_account_status()
+    """
+    client = get_client()
     return {
         "timestamp": datetime.now().isoformat(),
-        "action": "CANCEL_ALL",
-        "account": account,
-        "data": result
+        "data": client.get_account_status(),
     }
+
+
+@mcp.tool()
+def get_ext_data(extdataname: str, stockcode: str, deviation: int = 0) -> Dict[str, Any]:
+    """
+    获取扩展数据（EP 数据域）当前值
+
+    Args:
+        extdataname: 扩展数据名称
+        stockcode: 股票代码，如 '601899.SH'
+        deviation: 相对当前 K 线的偏移（0=当前，-1=上一根）
+
+    Returns:
+        扩展数据值
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.get_ext_data(extdataname, stockcode, deviation),
+    }
+
+
+@mcp.tool()
+def get_ext_data_rank(extdataname: str, stockcode: str, deviation: int = 0) -> Dict[str, Any]:
+    """
+    获取扩展数据在板块内的排名
+
+    Args:
+        extdataname: 扩展数据名称
+        stockcode: 股票代码
+        deviation: 相对当前 K 线的偏移
+
+    Returns:
+        排名结果
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.get_ext_data_rank(extdataname, stockcode, deviation),
+    }
+
+
+@mcp.tool()
+def get_factor_value(factorname: str, stockcode: str, deviation: int = 0) -> Dict[str, Any]:
+    """
+    获取因子当前值
+
+    Args:
+        factorname: 因子名称
+        stockcode: 股票代码
+        deviation: 相对当前 K 线的偏移
+
+    Returns:
+        因子值
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.get_factor_value(factorname, stockcode, deviation),
+    }
+
+
+@mcp.tool()
+def get_factor_rank(factorname: str, stockcode: str, deviation: int = 0) -> Dict[str, Any]:
+    """
+    获取因子在板块内的排名
+
+    Args:
+        factorname: 因子名称
+        stockcode: 股票代码
+        deviation: 相对当前 K 线的偏移
+
+    Returns:
+        排名结果
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.get_factor_rank(factorname, stockcode, deviation),
+    }
+
+
+@mcp.tool()
+def is_last_bar() -> Dict[str, Any]:
+    """判断当前 K 线是否为当日最后一根（只读）"""
+    client = get_client()
+    return {"timestamp": datetime.now().isoformat(), "data": client.is_last_bar()}
+
+
+@mcp.tool()
+def is_new_bar() -> Dict[str, Any]:
+    """判断当前 K 线是否为新生成的 K 线（只读）"""
+    client = get_client()
+    return {"timestamp": datetime.now().isoformat(), "data": client.is_new_bar()}
+
+
+@mcp.tool()
+def is_suspended_stock(stockcode: str) -> Dict[str, Any]:
+    """
+    判断股票是否停牌
+
+    Args:
+        stockcode: 股票代码，如 '601899.SH'
+
+    Returns:
+        是否停牌
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.is_suspended_stock(stockcode),
+    }
+
+
+@mcp.tool()
+def is_sector_stock(sectorname: str, market: str, stockcode: str) -> Dict[str, Any]:
+    """
+    判断股票是否属于指定板块
+
+    Args:
+        sectorname: 板块名称，如 '沪深300'
+        market: 市场，如 'SH'
+        stockcode: 股票代码，如 '601899.SH'
+
+    Returns:
+        是否属于该板块
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.is_sector_stock(sectorname, market, stockcode),
+    }
+
+
+@mcp.tool()
+def is_typed_stock(stocktypenum: int, market: str, stockcode: str) -> Dict[str, Any]:
+    """
+    按品种类型编号判断股票类型
+
+    Args:
+        stocktypenum: 品种类型编号
+        market: 市场，如 'SH'
+        stockcode: 股票代码
+
+    Returns:
+        类型判断结果
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.is_typed_stock(stocktypenum, market, stockcode),
+    }
+
+
+@mcp.tool()
+def get_industry_name_of_stock(industry_type: str, stockcode: str) -> Dict[str, Any]:
+    """
+    获取股票所属行业分类名称
+
+    Args:
+        industry_type: 行业分类标准（如 'SW'、'ZJW' 等）
+        stockcode: 股票代码，如 '601899.SH'
+
+    Returns:
+        行业名称
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.get_industry_name_of_stock(industry_type, stockcode),
+    }
+
+
+@mcp.tool()
+def get_order_deal(account: str = 'stock') -> Dict[str, Any]:
+    """
+    查询当日成交明细
+
+    Args:
+        account: 账户类型
+
+    Returns:
+        成交列表
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.get_order_deal(account),
+    }
+
+
+@mcp.tool()
+def get_trade_detail_data(account: str = 'stock', datatype: str = 'position') -> Dict[str, Any]:
+    """
+    查询交易明细（持仓/委托/成交/资金/账户）
+
+    Args:
+        account: 账户类型
+        datatype: 数据类型，如 position、order、deal、account、accountdetail
+
+    Returns:
+        明细列表
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.get_trade_detail_data(account, datatype),
+    }
+
+
+@mcp.tool()
+def get_last_order_id(account: str = 'stock', datatype: str = 'ORDER') -> Dict[str, Any]:
+    """
+    查询最后一笔委托编号
+
+    Args:
+        account: 账户类型
+        datatype: 数据类型（默认 ORDER）
+
+    Returns:
+        委托编号
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.get_last_order_id(account, datatype),
+    }
+
+
+@mcp.tool()
+def get_value_by_order_id(
+    order_id: str,
+    account_type: str = 'stock',
+    datatype: str = 'ORDER'
+) -> Dict[str, Any]:
+    """
+    按委托编号查询委托明细
+
+    Args:
+        order_id: 委托编号
+        account_type: 账户类型
+        datatype: 数据类型（默认 ORDER）
+
+    Returns:
+        该委托的字段明细
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.get_value_by_order_id(order_id, account_type, datatype),
+    }
+
+
+@mcp.tool()
+def get_ipo_data(typ: str = '') -> Dict[str, Any]:
+    """
+    获取新股申购数据
+
+    Args:
+        typ: 数据类型，留空取默认
+
+    Returns:
+        打新数据
+    """
+    client = get_client()
+    return {"timestamp": datetime.now().isoformat(), "data": client.get_ipo_data(typ)}
+
+
+@mcp.tool()
+def get_new_purchase_limit(account_id: str = '') -> Dict[str, Any]:
+    """
+    查询新股申购额度
+
+    Args:
+        account_id: 资金账号，留空使用策略绑定账号
+
+    Returns:
+        申购额度
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.get_new_purchase_limit(account_id),
+    }
+
+
+@mcp.tool()
+def get_debt_contract(account_id: str = '') -> Dict[str, Any]:
+    """
+    查询可融资标的（两融，只读）
+
+    Args:
+        account_id: 资金账号，留空使用策略绑定账号
+
+    Returns:
+        可融资标的列表
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.get_debt_contract(account_id),
+    }
+
+
+@mcp.tool()
+def get_assure_contract(account_id: str = '') -> Dict[str, Any]:
+    """
+    查询可融券标的（两融，只读）
+
+    Args:
+        account_id: 资金账号，留空使用策略绑定账号
+
+    Returns:
+        可融券标的列表
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.get_assure_contract(account_id),
+    }
+
+
+@mcp.tool()
+def get_enable_short_contract(account_id: str = '') -> Dict[str, Any]:
+    """
+    查询可融券卖出标的（两融，只读）
+
+    Args:
+        account_id: 资金账号，留空使用策略绑定账号
+
+    Returns:
+        标的列表
+    """
+    client = get_client()
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "data": client.get_enable_short_contract(account_id),
+    }
+
+
+# ===================================
+# MCP Tools - 只读查询（行情/财务/分类/产品等 ContextInfo 接口）
+# ===================================
+
+@mcp.tool()
+def get_last_close(stock: str) -> Dict[str, Any]:
+    """
+    获取指定标的的上一收盘价
+
+    Args:
+        stock: 股票代码，如 '601899.SH'
+    """
+    return _ctx_query("get_last_close", stock)
+
+
+@mcp.tool()
+def get_close_price(
+    market: str,
+    stock_code: str,
+    real_timetag: int,
+    period: int = 86400000,
+    divid_type: int = 0
+) -> Dict[str, Any]:
+    """
+    获取指定时刻的收盘价
+
+    Args:
+        market: 市场，如 'SH'
+        stock_code: 股票代码，如 '601899'
+        real_timetag: 时间戳（毫秒）
+        period: 周期（毫秒），默认 86400000（日线）
+        divid_type: 复权类型
+    """
+    return _ctx_query("get_close_price", market, stock_code, real_timetag, period, divid_type)
+
+
+@mcp.tool()
+def get_market_data_ex_ori(
+    fields: List[str] = None,
+    stock_code: List[str] = None,
+    period: str = 'follow',
+    start_time: str = '',
+    end_time: str = '',
+    count: int = -1,
+    dividend_type: str = 'follow',
+    fill_data: bool = True,
+    subscribe: bool = True
+) -> Dict[str, Any]:
+    """
+    获取未经整理的扩展行情原始数据（ContextInfo 版 get_market_data_ex）
+
+    Args:
+        fields: 字段列表，如 ['close', 'volume']
+        stock_code: 代码列表，如 ['601899.SH']（也接受逗号字符串）
+        period: 周期，如 '1d'、'follow'
+        start_time / end_time: 时间区间
+        count: 数据条数
+        dividend_type: 复权类型
+        fill_data: 是否补全数据
+        subscribe: 是否订阅缺失数据
+    """
+    return _ctx_query(
+        "get_market_data_ex_ori", _as_list(fields), _as_list(stock_code),
+        period, start_time, end_time, count, dividend_type, fill_data, subscribe,
+    )
+
+
+@mcp.tool()
+def subscribe_whole_quote(code_list: List[str] = None) -> Dict[str, Any]:
+    """
+    订阅全推行情（code_list 留空订阅全市场）
+
+    Args:
+        code_list: 代码列表，如 ['SH', 'SZ'] 或 ['601899.SH']
+    """
+    return _ctx_query("subscribe_whole_quote", _as_list(code_list))
+
+
+@mcp.tool()
+def get_finance(v_stock: str) -> Dict[str, Any]:
+    """
+    获取指定标的的财务数据（单股）
+
+    Args:
+        v_stock: 股票代码，如 '601899.SH'
+    """
+    return _ctx_query("get_finance", v_stock)
+
+
+@mcp.tool()
+def get_raw_financial_data(
+    field_list: str,
+    stock_list: str,
+    start_date: str = '',
+    end_date: str = '',
+    report_type: str = 'report_time',
+    data_type: str = 'dict'
+) -> Dict[str, Any]:
+    """
+    获取原始财务数据（字段+股票+区间）
+
+    Args:
+        field_list: 财务字段，逗号分隔
+        stock_list: 股票列表，逗号分隔
+        start_date / end_date: 日期区间，如 '20240101'
+        report_type: report_time 或 announce_time
+        data_type: 返回类型，默认 dict
+    """
+    return _ctx_query(
+        "get_raw_financial_data",
+        _as_list(field_list), _as_list(stock_list),
+        start_date, end_date, report_type, data_type,
+    )
+
+
+@mcp.tool()
+def get_float_caps(stockcode: str) -> Dict[str, Any]:
+    """
+    获取流通市值
+
+    Args:
+        stockcode: 股票代码，如 '601899.SH'
+    """
+    return _ctx_query("get_float_caps", stockcode)
+
+
+@mcp.tool()
+def get_holder_num(
+    stock_list: List[str] = None,
+    start_time: str = '',
+    end_time: str = '',
+    report_type: str = 'report_time'
+) -> Dict[str, Any]:
+    """
+    获取股东户数
+
+    Args:
+        stock_list: 股票列表（也接受逗号字符串）
+        start_time / end_time: 日期区间
+        report_type: report_time 或 announce_time
+    """
+    return _ctx_query(
+        "get_holder_num", _as_list(stock_list), start_time, end_time, report_type
+    )
+
+
+@mcp.tool()
+def get_smallcap() -> Dict[str, Any]:
+    """获取小盘股列表（只读）"""
+    return _ctx_query("get_smallcap")
+
+
+@mcp.tool()
+def get_midcap() -> Dict[str, Any]:
+    """获取中盘股列表（只读）"""
+    return _ctx_query("get_midcap")
+
+
+@mcp.tool()
+def get_largecap() -> Dict[str, Any]:
+    """获取大盘股列表（只读）"""
+    return _ctx_query("get_largecap")
+
+
+@mcp.tool()
+def is_stock(stock: str) -> Dict[str, Any]:
+    """
+    判断是否股票品种
+
+    Args:
+        stock: 代码，如 '601899.SH'
+    """
+    return _ctx_query("is_stock", stock)
+
+
+@mcp.tool()
+def is_future(market: str) -> Dict[str, Any]:
+    """
+    判断市场是否为期货
+
+    Args:
+        market: 市场代码，如 'IF'
+    """
+    return _ctx_query("is_future", market)
+
+
+@mcp.tool()
+def is_fund(stock: str) -> Dict[str, Any]:
+    """
+    判断是否基金品种
+
+    Args:
+        stock: 代码，如 '510300.SH'
+    """
+    return _ctx_query("is_fund", stock)
+
+
+@mcp.tool()
+def get_stock_type(stock: str) -> Dict[str, Any]:
+    """
+    获取品种类型编码
+
+    Args:
+        stock: 代码，如 '601899.SH'
+    """
+    return _ctx_query("get_stock_type", stock)
+
+
+@mcp.tool()
+def get_ETF_list(market: str, stockcode: str, type_list: List[str] = None) -> Dict[str, Any]:
+    """
+    获取 ETF 列表
+
+    Args:
+        market: 市场，如 'SH'
+        stockcode: 代码或板块
+        type_list: 类型过滤列表
+    """
+    return _ctx_query("get_ETF_list", market, stockcode, _as_list(type_list))
+
+
+@mcp.tool()
+def get_option_undl(opt_code: str) -> Dict[str, Any]:
+    """
+    获取期权对应标的
+
+    Args:
+        opt_code: 期权代码
+    """
+    return _ctx_query("get_option_undl", opt_code)
+
+
+@mcp.tool()
+def stockcode_in_rzrk() -> Dict[str, Any]:
+    """获取当前标的的融资融券信息（只读）"""
+    return _ctx_query("stockcode_in_rzrk")
+
+
+@mcp.tool()
+def get_net_value(barpositon: int) -> Dict[str, Any]:
+    """
+    获取指定 K 线位置的净值（回测/绩效）
+
+    Args:
+        barpositon: K 线索引
+    """
+    return _ctx_query("get_net_value", barpositon)
+
+
+@mcp.tool()
+def get_back_test_index() -> Dict[str, Any]:
+    """获取回测基准指数（只读）"""
+    return _ctx_query("get_back_test_index")
+
+
+@mcp.tool()
+def get_product_asset_value(code: str, index: int = -1) -> Dict[str, Any]:
+    """
+    获取产品资产净值
+
+    Args:
+        code: 产品代码
+        index: 序号，-1 表示最新
+    """
+    return _ctx_query("get_product_asset_value", code, index)
+
+
+@mcp.tool()
+def get_product_share(code: str, index: int = -1) -> Dict[str, Any]:
+    """
+    获取产品份额
+
+    Args:
+        code: 产品代码
+        index: 序号，-1 表示最新
+    """
+    return _ctx_query("get_product_share", code, index)
+
+
+@mcp.tool()
+def get_product_init_share(code: str = '') -> Dict[str, Any]:
+    """
+    获取产品初始份额
+
+    Args:
+        code: 产品代码
+    """
+    return _ctx_query("get_product_init_share", code)
+
+
+@mcp.tool()
+def get_scale_and_rank(stocks: List[str] = None) -> Dict[str, Any]:
+    """
+    获取规模排名
+
+    Args:
+        stocks: 股票列表（也接受逗号字符串）
+    """
+    return _ctx_query("get_scale_and_rank", _as_list(stocks))
+
+
+@mcp.tool()
+def get_scale_and_stock(total: float, stock_value: float, stock: str) -> Dict[str, Any]:
+    """
+    按规模计算股票权重
+
+    Args:
+        total: 总规模
+        stock_value: 个股市值
+        stock: 股票代码
+    """
+    return _ctx_query("get_scale_and_stock", total, stock_value, stock)
+
+
+@mcp.tool()
+def get_commission() -> Dict[str, Any]:
+    """获取当前佣金设置（只读）"""
+    return _ctx_query("get_commission")
+
+
+@mcp.tool()
+def get_slippage() -> Dict[str, Any]:
+    """获取当前滑点设置（只读）"""
+    return _ctx_query("get_slippage")
+
+
+@mcp.tool()
+def load_stk_list(dirfile: str, namefile: str) -> Dict[str, Any]:
+    """
+    从文件加载股票列表
+
+    Args:
+        dirfile: 目录文件
+        namefile: 名称文件
+    """
+    return _ctx_query("load_stk_list", dirfile, namefile)
+
+
+@mcp.tool()
+def load_stk_vol_list(dirfile: str, namefile: str) -> Dict[str, Any]:
+    """
+    从文件加载股票与成交量列表
+
+    Args:
+        dirfile: 目录文件
+        namefile: 名称文件
+    """
+    return _ctx_query("load_stk_vol_list", dirfile, namefile)
+
+
+@mcp.tool()
+def get_turn_over_rate(stockcode: str) -> Dict[str, Any]:
+    """
+    获取个股换手率（ContextInfo 单股版）
+
+    Args:
+        stockcode: 股票代码，如 '601899.SH'
+    """
+    return _ctx_query("get_turn_over_rate", stockcode)
 
 
 # ===================================

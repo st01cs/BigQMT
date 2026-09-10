@@ -253,30 +253,133 @@ class QMTClient:
             "POST", "/api/data/hkt_details", json={"stock_code": stock_code}
         )
 
-    # ---- 交易 ----
-    def buy_stock(
-        self, stock: str, price: float, volume: int, pr_type: int = 11
-    ) -> Dict:
-        return self._req(
-            "POST",
-            "/api/order/buy",
-            json={"stock": stock, "price": price, "volume": volume, "prType": pr_type},
-        )
-
-    def sell_stock(
-        self, stock: str, price: float, volume: int, pr_type: int = 11
-    ) -> Dict:
-        return self._req(
-            "POST",
-            "/api/order/sell",
-            json={"stock": stock, "price": price, "volume": volume, "prType": pr_type},
-        )
-
+    # ---- 只读查询：账户 / 订单 / 成交 ----
     def get_order_status(self, account: str = "stock") -> Dict:
         return self._req("POST", "/api/order/status", json={"account": account})
 
-    def cancel_all_orders(self, account: str = "stock") -> Dict:
-        return self._req("POST", "/api/order/cancel_all", json={"account": account})
+    def get_order_deal(self, account: str = "stock") -> Dict:
+        return self._req("POST", "/api/order/deal", json={"account": account})
+
+    def get_trade_detail_data(
+        self, account: str = "stock", datatype: str = "position"
+    ) -> Dict:
+        return self._req(
+            "POST",
+            "/api/trade/trade_detail_data",
+            json={"account": account, "datatype": datatype},
+        )
+
+    def get_last_order_id(self, account: str = "stock", datatype: str = "ORDER") -> Dict:
+        return self._req(
+            "POST",
+            "/api/trade/last_order_id",
+            json={"account": account, "datatype": datatype},
+        )
+
+    def get_value_by_order_id(
+        self, order_id: str, account_type: str = "stock", datatype: str = "ORDER"
+    ) -> Dict:
+        return self._req(
+            "POST",
+            "/api/trade/value_by_order_id",
+            json={"orderId": order_id, "accountType": account_type, "datatype": datatype},
+        )
+
+    # ---- 只读查询：打新 / 两融 ----
+    def get_ipo_data(self, typ: str = "") -> Dict:
+        return self._req("POST", "/api/trade/ipo_data", json={"type": typ})
+
+    def get_new_purchase_limit(self, account_id: str = "") -> Dict:
+        return self._req(
+            "POST", "/api/trade/new_purchase_limit", json={"accid": account_id}
+        )
+
+    def get_debt_contract(self, account_id: str = "") -> Dict:
+        return self._req("POST", "/api/trade/debt_contract", json={"accId": account_id})
+
+    def get_assure_contract(self, account_id: str = "") -> Dict:
+        return self._req("POST", "/api/trade/assure_contract", json={"accId": account_id})
+
+    def get_enable_short_contract(self, account_id: str = "") -> Dict:
+        return self._req(
+            "POST", "/api/trade/enable_short_contract", json={"accId": account_id}
+        )
+
+    # ---- 只读查询：扩展数据 / 因子 / 标的判断 ----
+    def get_ext_data(self, extdataname: str, stockcode: str, deviation: int = 0) -> Dict:
+        return self._req(
+            "POST",
+            "/api/ext/ext_data",
+            json={"extdataname": extdataname, "stockcode": stockcode, "deviation": deviation},
+        )
+
+    def get_ext_data_rank(self, extdataname: str, stockcode: str, deviation: int = 0) -> Dict:
+        return self._req(
+            "POST",
+            "/api/ext/ext_data_rank",
+            json={"extdataname": extdataname, "stockcode": stockcode, "deviation": deviation},
+        )
+
+    def get_factor_value(self, factorname: str, stockcode: str, deviation: int = 0) -> Dict:
+        return self._req(
+            "POST",
+            "/api/ext/get_factor_value",
+            json={"factorname": factorname, "stockcode": stockcode, "deviation": deviation},
+        )
+
+    def get_factor_rank(self, factorname: str, stockcode: str, deviation: int = 0) -> Dict:
+        return self._req(
+            "POST",
+            "/api/ext/get_factor_rank",
+            json={"factorname": factorname, "stockcode": stockcode, "deviation": deviation},
+        )
+
+    def is_last_bar(self) -> Dict:
+        return self._req("GET", "/api/check/is_last_bar")
+
+    def is_new_bar(self) -> Dict:
+        return self._req("GET", "/api/check/is_new_bar")
+
+    def is_suspended_stock(self, stockcode: str) -> Dict:
+        return self._req(
+            "POST", "/api/check/is_suspended_stock", json={"stockcode": stockcode}
+        )
+
+    def is_sector_stock(self, sectorname: str, market: str, stockcode: str) -> Dict:
+        return self._req(
+            "POST",
+            "/api/check/is_sector_stock",
+            json={"sectorname": sectorname, "market": market, "stockcode": stockcode},
+        )
+
+    def is_typed_stock(self, stocktypenum: int, market: str, stockcode: str) -> Dict:
+        return self._req(
+            "POST",
+            "/api/check/is_typed_stock",
+            json={"stocktypenum": stocktypenum, "market": market, "stockcode": stockcode},
+        )
+
+    def get_industry_name_of_stock(self, industry_type: str, stockcode: str) -> Dict:
+        return self._req(
+            "POST",
+            "/api/check/get_industry_name_of_stock",
+            json={"industryType": industry_type, "stockcode": stockcode},
+        )
+
+    def get_account_status(self) -> Dict:
+        return self._req("POST", "/api/sys/account_status", json={})
+
+    def get_context_value(self, field: str) -> Dict:
+        """策略上下文属性（对应 /api/context/<field>，均为只读 GET）。"""
+        return self._req("GET", "/api/context/%s" % field)
+
+    # ---- 通用只读查询（白名单方法，见后端 READONLY_CTX_METHODS）----
+    def query_ctx(self, method: str, *args, **kwargs) -> Dict:
+        return self._req(
+            "POST",
+            "/api/data/query",
+            json={"method": method, "args": list(args), "kwargs": kwargs},
+        )
 
     # ---- 系统 ----
     def python_version(self) -> Dict:

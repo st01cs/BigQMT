@@ -105,7 +105,7 @@ class QMTClientRequestTest(unittest.TestCase):
         client.get_total_money("stock")
         client.get_available_money("stock")
         client.get_order_status("stock")
-        client.cancel_all_orders("stock")
+        client.get_order_deal("stock")
         paths = [call["url"].rsplit("10086", 1)[-1] for call in session.calls]
         self.assertEqual(
             paths,
@@ -114,21 +114,83 @@ class QMTClientRequestTest(unittest.TestCase):
                 "/api/money/total",
                 "/api/money/available",
                 "/api/order/status",
-                "/api/order/cancel_all",
+                "/api/order/deal",
             ],
         )
 
-    def test_buy_sell_payload(self):
+    def test_readonly_trade_queries(self):
         session = _FakeSession()
         client = _client(session)
-        client.buy_stock("600000.SH", 9.5, 100)
-        client.sell_stock("600000.SH", 9.6, 200, pr_type=5)
-        buy = session.calls[0]["kwargs"]["json"]
-        sell = session.calls[1]["kwargs"]["json"]
-        self.assertEqual(buy, {"stock": "600000.SH", "price": 9.5, "volume": 100, "prType": 11})
-        self.assertEqual(sell, {"stock": "600000.SH", "price": 9.6, "volume": 200, "prType": 5})
-        self.assertTrue(session.calls[0]["url"].endswith("/api/order/buy"))
-        self.assertTrue(session.calls[1]["url"].endswith("/api/order/sell"))
+        client.get_trade_detail_data("stock", "position")
+        client.get_last_order_id("stock")
+        client.get_value_by_order_id("12345")
+        client.get_ipo_data()
+        client.get_new_purchase_limit()
+        client.get_debt_contract()
+        client.get_assure_contract()
+        client.get_enable_short_contract()
+        paths = [call["url"].rsplit("10086", 1)[-1] for call in session.calls]
+        self.assertEqual(
+            paths,
+            [
+                "/api/trade/trade_detail_data",
+                "/api/trade/last_order_id",
+                "/api/trade/value_by_order_id",
+                "/api/trade/ipo_data",
+                "/api/trade/new_purchase_limit",
+                "/api/trade/debt_contract",
+                "/api/trade/assure_contract",
+                "/api/trade/enable_short_contract",
+            ],
+        )
+        self.assertEqual(
+            session.calls[0]["kwargs"]["json"],
+            {"account": "stock", "datatype": "position"},
+        )
+        self.assertEqual(
+            session.calls[2]["kwargs"]["json"],
+            {"orderId": "12345", "accountType": "stock", "datatype": "ORDER"},
+        )
+
+    def test_trading_methods_are_gone(self):
+        for name in ("buy_stock", "sell_stock", "cancel_all_orders", "passorder"):
+            self.assertFalse(hasattr(QMTClient, name), name)
+
+    def test_query_ctx_payload(self):
+        session = _FakeSession()
+        _client(session).query_ctx("get_last_close", "601899.SH")
+        self.assertTrue(session.calls[0]["url"].endswith("/api/data/query"))
+        self.assertEqual(
+            session.calls[0]["kwargs"]["json"],
+            {"method": "get_last_close", "args": ["601899.SH"], "kwargs": {}},
+        )
+
+    def test_ext_check_and_context_paths(self):
+        session = _FakeSession()
+        client = _client(session)
+        client.get_ext_data("EP_X", "601899.SH", -1)
+        client.get_factor_value("ROE", "601899.SH")
+        client.is_last_bar()
+        client.get_industry_name_of_stock("SW", "601899.SH")
+        client.get_account_status()
+        client.get_context_value("period")
+        paths = [call["url"].rsplit("10086", 1)[-1] for call in session.calls]
+        self.assertEqual(
+            paths,
+            [
+                "/api/ext/ext_data",
+                "/api/ext/get_factor_value",
+                "/api/check/is_last_bar",
+                "/api/check/get_industry_name_of_stock",
+                "/api/sys/account_status",
+                "/api/context/period",
+            ],
+        )
+        self.assertEqual(
+            session.calls[0]["kwargs"]["json"],
+            {"extdataname": "EP_X", "stockcode": "601899.SH", "deviation": -1},
+        )
+        self.assertEqual(session.calls[2]["method"], "GET")
 
     def test_python_version_uses_get(self):
         session = _FakeSession()
