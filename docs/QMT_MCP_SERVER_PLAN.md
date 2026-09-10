@@ -76,6 +76,32 @@ bigqmt/
 | P2 | 测试重写（unittest）+ 文档 | `unittest` 全绿；冒烟脚本走规范 MCP 调用 |
 | P3 | 接入 CLI 生命周期（可选） | `bigqmt mcp start/status` 在 QMT 就绪后拉起服务 |
 
+### 实施记录（2026-09-10）
+
+- P0–P2 已完成并提交（`6f01736` / `5dfe64b` / `dedade6` / `fac8b90`）。
+- P3 已完成：`bigqmt mcp start|status|stop|restart`（`bigqmt/mcp/runner.py` 复用
+  `StrategyRunner` 的 PID 文件、启动确认、崩溃重启与日志），token 通过环境变量传递、
+  不落命令行。
+- 后端账号问题已修：`bigqmt/service/http.py` 的 `ACCOUNT_ID` 改为读 `QMT_ACCOUNT_ID`
+  （`TOKEN`/`PORT` 同理读 `QMT_HTTP_TOKEN`/`QMT_HTTP_PORT`），并新增
+  `GET/POST /api/sys/account_status` 与启动自检日志；账号缺失时资金/持仓/委托接口
+  返回 503 并附修复指引，而不是笼统的 500。
+
+迁移前后同参数实测（旧 9000 vs 新 9001，同一 QMT 后端）：
+
+| 工具 | 迁移前 | 迁移后 |
+| --- | --- | --- |
+| `get_instrument_detail` | 404 | 真实合约详情 |
+| `get_realtime_quote` | 500 | 真实 tick |
+| `get_trading_dates` | `[]` | 5 个交易日 |
+| `get_market_extended` | 10s 超时 | 真实 K 线（约 10ms） |
+| `get_market_data` | 10s 超时 | 真实数据 |
+| `get_total_assets` | 伪成功 | `isError=true` + 状态码 |
+
+待办（依赖 QMT 侧人工操作）：把改好的 `bigqmt/service/http.py` 重新加载进 QMT 策略，
+并确保 `QMT_ACCOUNT_ID` 对 QMT 进程可见；在此之前线上后端仍是旧副本
+（`/api/sys/account_status` 返回 404 可确认）。
+
 ## 6. 验收标准
 
 - `python -m unittest discover -s tests -t .` 全绿，既有 118 个用例不回归。

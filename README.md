@@ -226,14 +226,36 @@ python -m bigqmt.mcp --port 9100 --qmt-url http://127.0.0.1:10086
 python -m bigqmt.mcp --host 0.0.0.0 --allow-remote --auth-token <your-token>
 ```
 
+### 作为受管进程运行（推荐）
+
+MCP 服务可交给 BigQMT 的进程管理（复用策略运行器：PID 文件 + 启动确认 + 崩溃重启 + 日志）：
+
+```bash
+# 启动（后台常驻；默认使用当前解释器，可用 --python 指定带 fastmcp 的解释器）
+python -m bigqmt.core.qmt mcp start --python "D:\path\to\python.exe"
+
+# 查看状态 / 停止 / 重启
+python -m bigqmt.core.qmt mcp status
+python -m bigqmt.core.qmt mcp stop
+python -m bigqmt.core.qmt mcp restart
+```
+
+日志与 PID：`logs/mcp_server.log`、`logs/mcp_server.pid`。
+启动前会提示 QMT 当前状态（未就绪时仅警告，不阻断，可用 `--skip-qmt-check` 关闭）。
+Bearer token 通过 `--auth-token` 写入子进程环境变量，不会出现在命令行里。
+
 链路：MCP 客户端 → `bigqmt.mcp`（9000）→ QMT HTTP API（10086，跑在 QMT 内）→ 迅投 QMT。
 其中 QMT 侧 API 由 `bigqmt/service/http.py` 提供（部署到 QMT 的 python 目录，以策略方式运行，
 使用 QMT 内置 Python 3.6）。
 
 排查提示：
 
-- 账户/资金类工具返回 500「资金数据获取失败」＝ `bigqmt/service/http.py` 的 `ACCOUNT_ID`
-  仍是占位符，需填真实资金账号后重新部署。
+- 账户/资金类工具报错时先查 `GET/POST /api/sys/account_status`（需带 `X-Token`）：
+  它返回账号是否已配置、是否连通，并给出修复指引。
+- `bigqmt/service/http.py` 的资金账号改为读取环境变量 **`QMT_ACCOUNT_ID`**：
+  未配置时资金/持仓/委托接口返回 503 并附提示（不再是无说明的 500）。
+  该脚本运行在 QMT 内，改动后需要在 QMT 里**重新加载/重启该策略**才生效；
+  并确认环境变量对 QMT 进程可见（系统环境变量或 QMT 策略运行环境）。
 - 工具调用失败会以 `isError=true` 返回，错误正文包含后端 URL 与状态码。
 - 手工验证脚本：`python scripts/verify_mcp_endpoint.py --url http://127.0.0.1:9000/mcp`。
 
@@ -247,6 +269,7 @@ BigQMT/
 │  │  ├─ config.py           # 监听地址/端口/鉴权/QMT 后端配置
 │  │  ├─ client.py           # QMT HTTP 客户端 + QMTApiError
 │  │  ├─ auth.py             # Bearer 鉴权中间件
+│  │  ├─ runner.py           # MCP 服务进程管理（复用 StrategyRunner）
 │  │  ├─ server.py           # 53 tools + 2 resources
 │  │  └─ cli.py / __main__.py
 │  ├─ service/
