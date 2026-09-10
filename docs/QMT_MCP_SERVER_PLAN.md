@@ -102,10 +102,33 @@ bigqmt/
 并确保 `QMT_ACCOUNT_ID` 对 QMT 进程可见；在此之前线上后端仍是旧副本
 （`/api/sys/account_status` 返回 404 可确认）。
 
+### 接口覆盖补齐与交易接口移除（2026-09-10 第二批）
+
+以 QMT 自带 `_PyContextInfo.py`（类 `__PyContext`）为基准做了三方比对：
+ContextInfo 113 个方法 / 后端 108 条路由 / MCP 56 个工具，缺口分两类处理后：
+
+- **A 类（后端已有路由，仅缺 MCP 工具）**：新增 21 个只读工具——
+  策略上下文 `get_context_info`（一次读 10 个 context 属性）、`get_account_status`、
+  扩展数据/因子 `get_ext_data` / `get_ext_data_rank` / `get_factor_value` / `get_factor_rank`、
+  标的判断 `is_last_bar` / `is_new_bar` / `is_suspended_stock` / `is_sector_stock` /
+  `is_typed_stock` / `get_industry_name_of_stock`、只读交易查询 `get_order_deal` /
+  `get_trade_detail_data` / `get_last_order_id` / `get_value_by_order_id`、
+  打新与两融 `get_ipo_data` / `get_new_purchase_limit` / `get_debt_contract` /
+  `get_assure_contract` / `get_enable_short_contract`。
+- **B 类（ContextInfo 有方法、后端无路由）**：新增 30 个只读工具，后端用**白名单通用通道**
+  `/api/data/query` 承载（`READONLY_CTX_METHODS`），避免为每个方法各写一个 handler；
+  白名单只含查询类方法，任何下单/撤单/任务控制/参数设置方法都不在其中。
+- **交易类接口全部移除**：后端删除 24 个 handler 与 24 条路由（买入/卖出/撤单/算法单/
+  目标仓位/期货开平仓/任务控制），MCP 删除 `buy_stock` / `sell_stock` / `cancel_all_orders`
+  三个工具与对应客户端方法。测试新增 `FORBIDDEN_TOOLS` 防回归断言。
+
+最终：后端 85 条路由、MCP 104 个工具（53 迁移 + 3 资金流 + 51 只读 − 3 交易），
+全部为只读能力。
+
 ## 6. 验收标准
 
 - `python -m unittest discover -s tests -t .` 全绿，既有 118 个用例不回归。
-- `initialize` 协商 `2025-06-18`；`tools/list` 56 个（迁移基线 53 + 资金流 3 个）、`resources/list` 2 个。
+- `initialize` 协商 `2025-06-18`；`tools/list` 104 个（迁移基线 53 + 资金流 3 + 只读查询 51 - 交易 3）、`resources/list` 2 个。
 - `get_stock_name('600000.SH')` 返回「浦发银行」；`get_realtime_quote(['600000.SH'])` 返回真实 tick；
   `get_instrument_detail` 不再 404；`get_trading_dates` 返回真实交易日。
 - 后端失败时工具结果为 `isError=true`。

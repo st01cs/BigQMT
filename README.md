@@ -212,11 +212,23 @@ python -m unittest tests.test_mcp_protocol_e2e -v
 
 ## MCP 服务
 
-把 QMT 的行情/账户/交易能力暴露为 MCP 工具（56 个 tools + 2 个 resources），
+把 QMT 的行情/财务/账户查询能力暴露为 MCP 工具（104 个 tools + 2 个 resources），
 适合被支持 MCP 的客户端（Claude Desktop、Codex 等）直接调用。
 
-其中资金流相关：`get_north_finance_change`（北向资金，市场级）、
-`get_hkt_statistics` / `get_hkt_details`（个股港通统计与逐日明细）。
+**本服务只提供只读能力**：所有下单、撤单、算法单、期货开平仓、任务控制类接口
+（`buy_stock` / `sell_stock` / `cancel_all_orders` / `passorder` 等）已从后端路由与
+MCP 工具中整体移除，测试里有专门的防回归断言。
+
+能力分组：
+
+- 行情/行情订阅、财务与因子（`get_finance`、`get_raw_financial_data`、`get_ext_data`、
+  `get_factor_value` 等）、股东与股本、分红、龙虎榜、换手率
+- 资金流：`get_north_finance_change`（北向资金，市场级）、`get_hkt_statistics` /
+  `get_hkt_details`（个股港通统计与逐日明细）
+- 标的判断：`is_stock` / `is_future` / `is_fund` / `is_suspended_stock` / `is_sector_stock` 等
+- 账户查询：持仓、资金、成交、委托、两融标的、打新数据、账号自检
+- 长尾只读接口通过后端白名单 `/api/data/query` 暴露，白名单见
+  `bigqmt/service/http.py` 的 `READONLY_CTX_METHODS`
 
 ```bash
 # 默认仅本机可访问：http://127.0.0.1:9000/mcp
