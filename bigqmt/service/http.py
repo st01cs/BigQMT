@@ -131,6 +131,20 @@ def require_account(handler):
     )
 
 
+def normalize_date8(value, default):
+    """把日期规整成 QMT 需要的 YYYYMMDD；空值或格式不对时用 default。
+
+    `ContextInfo.get_turnover_rate` 等方法要求 8 位日期，传空串会直接返回空结果。
+    """
+    text = str(value or '').strip()
+    if not text:
+        return default
+    compact = text.replace('-', '').replace('/', '').replace('.', '')
+    if len(compact) == 8 and compact.isdigit():
+        return compact
+    return default
+
+
 def log_startup_self_check():
     """启动自检：账号配置 + 交易账号连通性。只写日志，不阻断服务启动。"""
     ok, message = check_account_id(ACCOUNT_ID)
@@ -184,9 +198,13 @@ class BaseHandler(RequestHandler):
         message = self._reason
         exc_info = kwargs.get('exc_info')
         if exc_info:
-            log_message = getattr(exc_info[1], 'log_message', None)
+            exc = exc_info[1]
+            log_message = getattr(exc, 'log_message', None)
             if log_message:
                 message = log_message
+            elif isinstance(exc, NameError):
+                # 后端脚本调用了当前 QMT 环境未注入的全局函数
+                message = f"QMT 接口在当前环境不可用（{exc}）"
         self.finish(json.dumps({
             "error": message,
             "status_code": status_code
@@ -265,7 +283,10 @@ class OpenDateHandler(BaseHandler):
     def post(self):
         data = json.loads(self.request.body)
         stockcode = data.get('stockcode', '')
-        ret = safe_call(get_open_date, stockcode)
+        ret = safe_call(self.ctx().get_open_date, stockcode)
+        if ret is None:  # 兜底：合约详情里也有上市日期
+            detail = safe_call(self.ctx().get_instrument_detail, stockcode) or {}
+            ret = detail.get('OpenDate')
         self.write(json.dumps({"stockcode": stockcode, "open_date": ret}, ensure_ascii=False))
 
 # ContextInfo.get_last_volume() - 获取最新流通股本
@@ -507,10 +528,12 @@ class Top10ShareHolderHandler(BaseHandler):
         data = json.loads(self.request.body)
         stock_list = data.get('stock_list', '')
         data_name = data.get('data_name', 'holder')
-        start_time = data.get('start_time', '')
-        end_time = data.get('end_time', '')
+        start_time = normalize_date8(data.get('start_time', ''), '19720101')
+        end_time = normalize_date8(data.get('end_time', ''), '22010101')
         slist = [s.strip() for s in stock_list.split(',')] if stock_list else []
-        ret = safe_call(get_top10_share_holder, slist, data_name, start_time, end_time)
+        ret = safe_call(
+            self.ctx().get_top10_share_holder, slist, data_name, start_time, end_time
+        )
         if hasattr(ret, 'to_dict'):
             ret = ret.to_dict()
         self.write(json.dumps({"data": ret} if ret else {"error": "获取十大股东数据失败"}, ensure_ascii=False, default=str))
@@ -528,8 +551,8 @@ class TurnoverRateHandler(BaseHandler):
     def post(self):
         data = json.loads(self.request.body)
         stock_list = data.get('stock_list', '')
-        startTime = data.get('startTime', '')
-        endTime = data.get('endTime', '')
+        startTime = normalize_date8(data.get('startTime', ''), '19720101')
+        endTime = normalize_date8(data.get('endTime', ''), '22010101')
         slist = [s.strip() for s in stock_list.split(',')] if stock_list else []
         ret = safe_call(self.ctx().get_turnover_rate, slist, startTime, endTime)
         if hasattr(ret, 'to_dict'):

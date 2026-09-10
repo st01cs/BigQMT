@@ -237,6 +237,52 @@ class WriteErrorTest(unittest.TestCase):
         payload = self._call_write_error(error, status=400, reason="Bad Request")
         self.assertEqual(payload["error"], "Bad Request")
 
+    def test_name_error_is_explained(self):
+        error = NameError("name 'get_open_date' is not defined")
+        payload = self._call_write_error(error, status=500)
+        self.assertIn("QMT 接口在当前环境不可用", payload["error"])
+
+
+@unittest.skipUnless(SERVICE_FILE.is_file(), "缺少 bigqmt/service/http.py")
+class NormalizeDate8Test(unittest.TestCase):
+    """QMT 的 get_turnover_rate / get_top10_share_holder 要求 8 位日期。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.module = load_service_module()
+
+    def test_empty_uses_default(self):
+        self.assertEqual(self.module.normalize_date8("", "19720101"), "19720101")
+        self.assertEqual(self.module.normalize_date8(None, "22010101"), "22010101")
+
+    def test_separators_are_stripped(self):
+        for value in ("2024-01-01", "2024/01/01", "2024.01.01", "20240101"):
+            self.assertEqual(self.module.normalize_date8(value, "x"), "20240101", value)
+
+    def test_invalid_values_fall_back(self):
+        for value in ("2024-1-1", "abc", "202401011", "2024"):
+            self.assertEqual(self.module.normalize_date8(value, "def"), "def", value)
+
+
+@unittest.skipUnless(SERVICE_FILE.is_file(), "缺少 bigqmt/service/http.py")
+class HandlerCallStyleTest(unittest.TestCase):
+    """回归防护：这几个 handler 必须走 ContextInfo 方法，而不是未注入的全局函数。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.source = SERVICE_FILE.read_text(encoding="utf-8")
+
+    def test_fixed_handlers_use_context_methods(self):
+        self.assertNotIn("safe_call(get_open_date", self.source)
+        self.assertNotIn("safe_call(get_top10_share_holder", self.source)
+        self.assertIn("self.ctx().get_open_date", self.source)
+        self.assertIn("self.ctx().get_top10_share_holder", self.source)
+        self.assertIn("self.ctx().get_turnover_rate", self.source)
+
+    def test_turnover_rate_dates_are_normalised(self):
+        self.assertIn("normalize_date8(data.get('startTime'", self.source)
+        self.assertIn("normalize_date8(data.get('endTime'", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()
