@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from bigqmt.core.qmt._strategy import StrategyRunner, StrategySpec
+from bigqmt.mcp.client import QMTClient, QMTApiError
 from bigqmt.mcp.config import McpConfig, load_mcp_config
 
 #: 仓库根目录（bigqmt/mcp/runner.py → 上三级）
@@ -103,6 +104,29 @@ def build_runner(
     )
 
 
+def probe_qmt_backend(
+    config: Optional[McpConfig] = None, timeout: float = 2.0
+) -> tuple:
+    """探测 QMT 侧 HTTP API 是否可用，返回 (ok, message)。
+
+    比按进程名探测更贴近实际：MCP 工具能否工作，取决于 QMT 内那份
+    `bigqmt/service/http.py` 策略有没有在监听（进程在跑但策略没加载时，
+    工具调用同样会失败）。
+    """
+    cfg = config or load_mcp_config()
+    client = QMTClient(
+        base_url=cfg.qmt_base_url, token=cfg.qmt_token, timeout=timeout, config=cfg
+    )
+    try:
+        info = client.python_version()
+    except QMTApiError as exc:
+        return False, str(exc)
+    version = ""
+    if isinstance(info, dict):
+        version = str(info.get("python_version", ""))
+    return True, version or "ok"
+
+
 __all__ = [
     "REPO_ROOT",
     "build_mcp_command",
@@ -110,4 +134,5 @@ __all__ = [
     "build_runner",
     "default_log_file",
     "default_pid_file",
+    "probe_qmt_backend",
 ]

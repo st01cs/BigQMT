@@ -1,6 +1,13 @@
 import unittest
 
-from bigqmt.mcp.client import QMTClient, QMTApiError, as_csv, get_client, set_client
+from bigqmt.mcp.client import (
+    QMTClient,
+    QMTApiError,
+    as_csv,
+    describe_request_error,
+    get_client,
+    set_client,
+)
 from bigqmt.mcp.config import McpConfig
 
 
@@ -144,7 +151,26 @@ class QMTClientErrorTest(unittest.TestCase):
         with self.assertRaises(QMTApiError) as ctx:
             _client(session).get_holding()
         self.assertIsNone(ctx.exception.status_code)
-        self.assertIn("connection refused", str(ctx.exception))
+        self.assertIn("无法连接", str(ctx.exception))
+        self.assertIn("127.0.0.1:10086", str(ctx.exception))
+        self.assertIsInstance(ctx.exception.__cause__, RuntimeError)
+
+    def test_timeout_message_is_concise(self):
+        session = _FakeSession(
+            RuntimeError("HTTPConnectionPool(host='127.0.0.1', port=10086): Read timed out. (read timeout=10)")
+        )
+        with self.assertRaises(QMTApiError) as ctx:
+            _client(session).python_version()
+        self.assertIn("读取超时", str(ctx.exception))
+        self.assertLess(len(str(ctx.exception)), 120)
+
+    def test_describe_request_error_buckets(self):
+        self.assertIn("无法连接", describe_request_error(RuntimeError("Connection refused")))
+        self.assertIn("无法连接", describe_request_error(RuntimeError("Max retries exceeded with url")))
+        self.assertIn("读取超时", describe_request_error(RuntimeError("Read timed out. (read timeout=10)")))
+        self.assertEqual(
+            describe_request_error(RuntimeError("  something   odd  ")), "something odd"
+        )
 
     def test_non_json_response_raises(self):
         session = _FakeSession(_FakeResponse(ValueError("bad json"), text="<html>500</html>"))

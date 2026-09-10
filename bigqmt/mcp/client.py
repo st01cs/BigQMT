@@ -63,6 +63,23 @@ def as_csv(value: Any) -> str:
     return str(value).strip()
 
 
+def describe_request_error(exc: BaseException) -> str:
+    """把 requests 的冗长异常压成一句人话（原始异常仍挂在 __cause__）。"""
+    text = str(exc)
+    lowered = text.lower()
+    if "read timed out" in lowered or "read timeout" in lowered:
+        return "读取超时（QMT 后端响应过慢或调用被阻塞）"
+    if (
+        "connecttimeout" in lowered
+        or "connection refused" in lowered
+        or "max retries exceeded" in lowered
+        or "connection aborted" in lowered
+        or "timed out" in lowered
+    ):
+        return "无法连接（QMT 后端未运行或不可达）"
+    return " ".join(text.split())[:120]
+
+
 class QMTClient:
     """QMT HTTP 客户端。"""
 
@@ -107,7 +124,9 @@ class QMTClient:
             resp = self.session.request(method, url, timeout=self.timeout, **kwargs)
         except Exception as exc:  # 网络层异常（requests 未安装/连接失败等）
             raise QMTApiError(
-                f"{method} {path} 请求失败: {exc}", method=method, path=path
+                f"{method} {path} 请求失败：{describe_request_error(exc)}（后端 {self.base}）",
+                method=method,
+                path=path,
             ) from exc
 
         status = getattr(resp, "status_code", None)
@@ -269,6 +288,7 @@ __all__ = [
     "QMTClient",
     "QMTApiError",
     "as_csv",
+    "describe_request_error",
     "get_client",
     "set_client",
 ]

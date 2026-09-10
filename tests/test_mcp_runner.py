@@ -8,6 +8,8 @@ from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
+from bigqmt.mcp import runner as runner_mod
+from bigqmt.mcp.client import QMTApiError
 from bigqmt.core.qmt._strategy import build_command
 from bigqmt.mcp.config import McpConfig
 from bigqmt.mcp.runner import (
@@ -135,21 +137,50 @@ class BuildRunnerTest(unittest.TestCase):
         self.assertFalse(Path(self.pid_file).exists())
 
 
+class ProbeQmtBackendTest(unittest.TestCase):
+    def test_available(self):
+        class FakeClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def python_version(self):
+                return {"python_version": "3.6.8"}
+
+        with mock.patch.object(runner_mod, "QMTClient", FakeClient):
+            ok, detail = runner_mod.probe_qmt_backend(McpConfig())
+        self.assertTrue(ok)
+        self.assertIn("3.6.8", detail)
+
+    def test_unavailable_reports_error(self):
+        class FakeClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def python_version(self):
+                raise QMTApiError("连接被拒绝", path="/api/sys/python_version")
+
+        with mock.patch.object(runner_mod, "QMTClient", FakeClient):
+            ok, detail = runner_mod.probe_qmt_backend(McpConfig())
+        self.assertFalse(ok)
+        self.assertIn("连接被拒绝", detail)
+
+
 class CliMcpCommandTest(unittest.TestCase):
     """`bigqmt mcp ...` 子命令的调度测试。"""
 
     class StubRunner:
-        def __init__(self, ok=True):
+        def __init__(self, ok=True, running=False):
             self.ok = ok
+            self.running = running
             self.calls = []
             self._pid_file = str(Path(tempfile.gettempdir()) / "bigqmt_mcp_test.pid")
 
         def status(self):
             return {
-                "state": "running",
+                "state": "running" if self.running else "idle",
                 "mode": "supervise",
-                "running": True,
-                "pid": 4321,
+                "running": self.running,
+                "pid": 4321 if self.running else None,
                 "exit_code": None,
                 "restart_count": 0,
                 "last_error": None,
@@ -159,7 +190,7 @@ class CliMcpCommandTest(unittest.TestCase):
             }
 
         def is_running(self):
-            return True
+            return self.running
 
         def start(self, timeout=None):
             self.calls.append(("start", timeout))
@@ -169,24 +200,30 @@ class CliMcpCommandTest(unittest.TestCase):
             self.calls.append(("stop_external", None))
             return True
 
-    def _run(self, argv, runner, manager=None):
+    def _run(self, argv, runner, probe=(True, "ok")):
         from bigqmt.core.qmt import cli
 
-        if manager is None:
-            manager = mock.Mock()
-            manager.status.return_value = {"state": "ready"}
         buf = io.StringIO()
         with mock.patch("bigqmt.mcp.runner.build_runner", return_value=runner):
-            with mock.patch.object(cli, "get_qmt_manager", return_value=manager):
+            with mock.patch("bigqmt.mcp.runner.probe_qmt_backend", return_value=probe):
                 with redirect_stdout(buf):
                     code = cli.main(argv)
         return code, buf.getvalue()
 
     def test_status(self):
-        code, out = self._run(["mcp", "status"], self.StubRunner())
+        code, out = self._run(["mcp", "status"], self.StubRunner(running=True))
         self.assertEqual(code, 0)
         self.assertIn("mcp url", out)
         self.assertIn("mcp running     : True", out)
+        self.assertIn("qmt api ok      : True", out)
+
+    def test_status_reports_backend_down(self):
+        code, out = self._run(
+            ["mcp", "status"], self.StubRunner(running=True), probe=(False, "连接被拒绝")
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("qmt api ok      : False", out)
+        self.assertIn("连接被拒绝", out)
 
     def test_start(self):
         runner = self.StubRunner()
@@ -195,11 +232,24 @@ class CliMcpCommandTest(unittest.TestCase):
         self.assertIn("MCP 服务已启动", out)
         self.assertEqual(runner.calls, [("start", None)])
 
+    def test_start_when_already_running_is_idempotent(self):
+        runner = self.StubRunner(running=True)
+        code, out = self._run(["mcp", "start"], runner)
+        self.assertEqual(code, 0)
+        self.assertIn("已在运行", out)
+        self.assertEqual(runner.calls, [], "已在运行时不应重复拉起")
+
     def test_start_failure_returns_1(self):
         runner = self.StubRunner(ok=False)
         code, out = self._run(["mcp", "start"], runner)
         self.assertEqual(code, 1)
         self.assertIn("启动失败", out)
+
+    def test_restart_stops_then_starts(self):
+        runner = self.StubRunner(running=True)
+        code, _ = self._run(["mcp", "restart"], runner)
+        self.assertEqual(code, 0)
+        self.assertEqual(runner.calls, [("stop_external", None), ("start", None)])
 
     def test_stop(self):
         runner = self.StubRunner()
@@ -223,22 +273,25 @@ class CliMcpCommandTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(runner.calls, [("start", None)])
 
-    def test_qmt_not_ready_warns_but_starts(self):
+    def test_backend_down_warns_but_starts(self):
         runner = self.StubRunner()
-        manager = mock.Mock()
-        manager.status.return_value = {"state": "stopped"}
-        code, out = self._run(["mcp", "start"], runner, manager=manager)
+        code, out = self._run(
+            ["mcp", "start"], runner, probe=(False, "Read timed out")
+        )
         self.assertEqual(code, 0)
         self.assertIn("警告", out)
+        self.assertIn("HTTP API", out)
         self.assertEqual(runner.calls, [("start", None)])
 
-    def test_skip_qmt_check_suppresses_warning(self):
+    def test_skip_qmt_check_suppresses_probe(self):
         runner = self.StubRunner()
-        manager = mock.Mock()
-        manager.status.return_value = {"state": "stopped"}
-        code, out = self._run(["mcp", "start", "--skip-qmt-check"], runner, manager=manager)
+        # _run 默认让探测返回失败；带 --skip-qmt-check 时不应出现警告
+        code, out = self._run(
+            ["mcp", "start", "--skip-qmt-check"], runner, probe=(False, "x")
+        )
         self.assertEqual(code, 0)
         self.assertNotIn("警告", out)
+        self.assertEqual(runner.calls, [("start", None)])
 
 
 if __name__ == "__main__":

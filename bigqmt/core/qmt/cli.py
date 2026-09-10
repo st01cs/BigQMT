@@ -114,22 +114,57 @@ def _print_strategy_status(status: dict) -> None:
     print(f"strategy log    : {status['strategy']['log_file']}")
 
 
+def _shorten(text, limit: int = 120) -> str:
+    """把长错误信息压缩成一行，便于 CLI 阅读。"""
+    flat = " ".join(str(text).split())
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
+
+
+def _read_pid_file(pid_file) -> Optional[int]:
+    try:
+        return int(Path(pid_file).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def _warn_if_backend_down(config) -> bool:
+    """探测 QMT 侧 HTTP API；不可用时给出可操作的提示。返回是否可用。"""
+    from bigqmt.mcp.runner import probe_qmt_backend
+
+    ok, detail = probe_qmt_backend(config)
+    if ok:
+        print(f"[bigqmt] QMT HTTP API 可用（{config.qmt_base_url}）")
+        return True
+    print(
+        f"[bigqmt] 警告：QMT HTTP API（{config.qmt_base_url}）不可用：{_shorten(detail)}"
+    )
+    print(
+        "[bigqmt]       请确认 QMT 已登录，且 QMT 内的 HTTP API 策略（"
+        "bigqmt/service/http.py）正在运行，否则行情/账户类工具会失败。"
+    )
+    return False
+
+
 def _print_mcp_status(runner, config) -> None:
     """打印 MCP 服务状态（本进程未持有子进程时回退到 PID 文件）。"""
+    from bigqmt.mcp.runner import probe_qmt_backend
+
     status = runner.status()
     running = runner.is_running()
     pid = status["pid"]
     if pid is None and running:
-        try:
-            pid = int(Path(status["pid_file"]).read_text(encoding="utf-8").strip())
-        except (OSError, ValueError):
-            pid = None
+        pid = _read_pid_file(status["pid_file"])
+    backend_ok, backend_detail = probe_qmt_backend(config)
     print(f"mcp url         : http://{config.host}:{config.port}/mcp")
     print(f"mcp state       : {status['state']}")
     print(f"mcp running     : {running}")
     print(f"mcp pid         : {pid}")
     print(f"mcp auth        : {'Bearer' if config.auth_token else 'off'}")
     print(f"qmt backend     : {config.qmt_base_url}")
+    print(
+        f"qmt api ok      : {backend_ok}"
+        + ("" if backend_ok else f"（{_shorten(backend_detail)}）")
+    )
     print(f"mcp log         : {status['log_file']}")
     print(f"last_error      : {status['last_error']}")
 
@@ -177,16 +212,20 @@ def _cmd_mcp(args) -> int:
     if action in ("start", "restart"):
         if action == "restart":
             runner.stop_external()
+        elif runner.is_running():
+            # 守护进程语义：已在运行视为成功（不重复拉起）
+            pid = _read_pid_file(runner.status()["pid_file"]) or runner.status()["pid"]
+            print(
+                f"[bigqmt] MCP 服务已在运行 pid={pid} "
+                f"http://{config.host}:{config.port}/mcp"
+            )
+            if not args.skip_qmt_check:
+                _warn_if_backend_down(config)
+            return 0
+
         if not args.skip_qmt_check:
-            try:
-                state = get_qmt_manager().status().get("state")
-            except Exception as exc:  # 状态探测失败不阻断启动
-                state = f"未知({exc})"
-            if state != "ready":
-                print(
-                    f"[bigqmt] 警告：QMT 当前状态为 {state}，"
-                    "MCP 工具的行情/账户调用可能失败"
-                )
+            _warn_if_backend_down(config)
+
         if not runner.start(timeout=args.timeout):
             print(f"[bigqmt] MCP 服务启动失败: {runner.status()['last_error']}")
             return 1
