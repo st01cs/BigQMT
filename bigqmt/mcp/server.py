@@ -16,7 +16,7 @@ from typing import Any, Dict, List
 
 from fastmcp import FastMCP
 
-from bigqmt.mcp.client import QMTClient, QMTApiError, get_client
+from bigqmt.mcp.client import QMTApiError, get_client
 from bigqmt.mcp.config import McpConfig, load_mcp_config
 
 logger = logging.getLogger("bigqmt.mcp")
