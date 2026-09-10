@@ -2,6 +2,7 @@
 # author公众号：可转债量化分析
 import json
 import locale
+import math
 import os
 from tornado.web import Application, RequestHandler, HTTPError
 from tornado.ioloop import IOLoop
@@ -169,6 +170,21 @@ def is_port_in_use(port, host='127.0.0.1', timeout=0.5):
             sock.close()
         except Exception:
             pass
+
+
+def sanitize_json(value):
+    """把 NaN / Infinity 递归转成 None。
+
+    `json.dumps` 默认会输出裸 `NaN`/`Infinity`，这不是合法 JSON，
+    严格解析的 MCP 客户端会直接报错；QMT 侧不少接口在无数据时返回 NaN。
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return dict((key, sanitize_json(item)) for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return [sanitize_json(item) for item in value]
+    return value
 
 
 #: `/api/data/query` 允许调用的只读方法白名单。
@@ -620,6 +636,7 @@ class QueryHandler(BaseHandler):
         ret = safe_call(func, *args, **kwargs)
         if hasattr(ret, 'to_dict'):
             ret = ret.to_dict()
+        ret = sanitize_json(ret)
         if is_empty_result(ret):
             raise HTTPError(503, "%s 返回空（数据未下载或参数不符）" % method)
         self.write(json.dumps({"method": method, "data": ret}, ensure_ascii=False, default=str))

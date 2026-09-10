@@ -355,6 +355,58 @@ class PortInUseTest(unittest.TestCase):
 
 
 @unittest.skipUnless(SERVICE_FILE.is_file(), "缺少 bigqmt/service/http.py")
+class SanitizeJsonTest(unittest.TestCase):
+    """NaN/Infinity 必须转成 null，否则响应不是合法 JSON。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.module = load_service_module()
+
+    def test_nan_and_inf_become_none(self):
+        sanitize = self.module.sanitize_json
+        self.assertIsNone(sanitize(float("nan")))
+        self.assertIsNone(sanitize(float("inf")))
+        self.assertIsNone(sanitize(float("-inf")))
+
+    def test_finite_values_kept(self):
+        self.assertEqual(self.module.sanitize_json(1.5), 1.5)
+        self.assertEqual(self.module.sanitize_json(0), 0)
+
+    def test_nested_structures(self):
+        payload = {"a": [1.0, float("nan")], "b": {"c": float("inf")}}
+        self.assertEqual(
+            self.module.sanitize_json(payload), {"a": [1.0, None], "b": {"c": None}}
+        )
+
+    def test_result_serialises_as_valid_json(self):
+        payload = self.module.sanitize_json({"value": float("nan")})
+        text = json.dumps(payload)
+        self.assertNotIn("NaN", text)
+        self.assertEqual(json.loads(text), {"value": None})
+
+    def test_query_handler_sanitises_payload(self):
+        captured = {}
+
+        class FakeHandler:
+            request = type("Req", (), {"body": json.dumps({"method": "get_turn_over_rate", "args": ["601899.SH"]}).encode()})()
+
+            def ctx(self):
+                class Ctx:
+                    def get_turn_over_rate(self, code):
+                        return float("nan")
+
+                return Ctx()
+
+            def write(self, payload):
+                captured["payload"] = payload
+
+        with self.assertRaises(Exception) as ctx:
+            self.module.QueryHandler.post(FakeHandler())
+        # NaN 被清理后视为空结果，返回 503 而不是裸 NaN
+        self.assertEqual(getattr(ctx.exception, "status_code", None), 503)
+
+
+@unittest.skipUnless(SERVICE_FILE.is_file(), "缺少 bigqmt/service/http.py")
 class HandlerCallStyleTest(unittest.TestCase):
     """回归防护：这几个 handler 必须走 ContextInfo 方法，而不是未注入的全局函数。"""
 
