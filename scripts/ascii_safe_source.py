@@ -23,11 +23,72 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 import sys
 from pathlib import Path
 
 CODING_RE = re.compile(r"^#.*coding[:=]\s*([-\w.]+)")
+
+
+class SourceCompatibilityError(ValueError):
+    """转换后的源码在目标 Python 版本上无法解析。"""
+
+
+def python36_fstring_issues(source: str):
+    """找出 Python 3.6 无法解析的 f-string，返回 [(行号, 说明)]。
+
+    3.6/3.7 的 f-string 表达式部分有两条例外限制（PEP 701 到 3.12 才放宽）：
+    - 不能出现反斜杠——ASCII 转义产生的 ``\\uXXXX`` 正好会踩中；
+    - 不能使用与外层相同的引号类型。
+
+    注意：``ast.parse(feature_version=(3, 6))`` 不会检查这些限制，必须单独判。
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return []  # 语法本身有问题时交给编译环节报错
+
+    issues = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FormattedValue):
+            segment = ast.get_source_segment(source, node) or ""
+            if "\\" in segment:
+                issues.append(
+                    (node.lineno, "f-string 表达式内含反斜杠: " + segment.strip()[:60])
+                )
+        if isinstance(node, ast.JoinedStr):
+            segment = ast.get_source_segment(source, node) or ""
+            prefix_len = len(segment) - len(segment.lstrip("fFrRbBuU"))
+            rest = segment[prefix_len:]
+            if not rest:
+                continue
+            quote = rest[0]
+            if quote not in "'\"":
+                continue
+            for value in node.values:
+                if not isinstance(value, ast.FormattedValue):
+                    continue
+                inner = ast.get_source_segment(source, value) or ""
+                if quote in inner:
+                    issues.append(
+                        (value.lineno, "f-string 表达式内使用了与外层相同的引号: "
+                         + inner.strip()[:60])
+                    )
+    return issues
+
+
+def assert_python36_fstring_safe(source: str) -> None:
+    """转换结果不满足 Python 3.6 f-string 约束时抛 SourceCompatibilityError。"""
+    issues = python36_fstring_issues(source)
+    if not issues:
+        return
+    detail = "; ".join(f"line {line}: {why}" for line, why in issues[:5])
+    raise SourceCompatibilityError(
+        f"目标 Python 3.6 无法解析以下 f-string：{detail}。"
+        "请把表达式里的中文字面量提取成变量后再转换（例如把 "
+        "f\"...{x or '未配置'}\" 改为先赋值再引用）。"
+    )
 
 
 def to_ascii(source: str) -> str:
@@ -52,8 +113,11 @@ def with_coding_declaration(source: str, encoding: str) -> str:
 def convert_text(source: str, encoding: str) -> str:
     """按目标编码生成最终写出的文本内容。"""
     if encoding == "ascii":
-        return with_coding_declaration(to_ascii(source), "ascii")
-    return with_coding_declaration(source, encoding)
+        converted = with_coding_declaration(to_ascii(source), "ascii")
+    else:
+        converted = with_coding_declaration(source, encoding)
+    assert_python36_fstring_safe(converted)
+    return converted
 
 
 def convert_file(src: Path, dst: Path, encoding: str = "ascii") -> int:
@@ -120,6 +184,9 @@ def main(argv=None) -> int:
     try:
         size = convert_file(src, dst, args.encoding)
     except UnicodeEncodeError as exc:
+        print(f"[FAIL] {exc}", file=sys.stderr)
+        return 2
+    except SourceCompatibilityError as exc:
         print(f"[FAIL] {exc}", file=sys.stderr)
         return 2
     print(f"[OK] 已生成 {args.encoding} 版本：{dst.resolve()}（{size} 字节）")

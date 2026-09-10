@@ -134,10 +134,11 @@ def require_account(handler):
 def log_startup_self_check():
     """启动自检：账号配置 + 交易账号连通性。只写日志，不阻断服务启动。"""
     ok, message = check_account_id(ACCOUNT_ID)
+    account_text = mask_account(ACCOUNT_ID) or "(未配置)"
     logger.info("=" * 60)
     logger.info("QMT HTTP API 启动自检")
     logger.info(f"  监听端口   : {PORT}（鉴权头 X-Token: {'*' * len(TOKEN)}）")
-    logger.info(f"  资金账号   : {mask_account(ACCOUNT_ID) or '(未配置)'}")
+    logger.info(f"  资金账号   : {account_text}")
     if not ok:
         logger.error(f"  [FAIL] {message}")
         logger.error(

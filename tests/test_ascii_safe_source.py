@@ -7,8 +7,11 @@ import unittest
 from pathlib import Path
 
 from scripts.ascii_safe_source import (
+    SourceCompatibilityError,
+    assert_python36_fstring_safe,
     convert_file,
     convert_text,
+    python36_fstring_issues,
     to_ascii,
     with_coding_declaration,
 )
@@ -120,6 +123,44 @@ class EncodingModeTest(unittest.TestCase):
             self.assertEqual(raw.decode("utf-8"), self.SOURCE)
 
 
+class FStringCompatTest(unittest.TestCase):
+    """Python 3.6 的 f-string 限制（PEP 701 之前）。"""
+
+    def test_backslash_in_expression_is_detected(self):
+        source = to_ascii('logger.info(f"{name or \'未配置\'}")\n')
+        issues = python36_fstring_issues(source)
+        self.assertTrue(issues, "应检测出表达式内的反斜杠")
+        self.assertIn("反斜杠", issues[0][1])
+
+    def test_assert_raises_with_actionable_message(self):
+        source = to_ascii('logger.info(f"{name or \'未配置\'}")\n')
+        with self.assertRaises(SourceCompatibilityError) as ctx:
+            assert_python36_fstring_safe(source)
+        self.assertIn("提取成变量", str(ctx.exception))
+
+    def test_chinese_in_literal_part_is_fine(self):
+        source = to_ascii('logger.info(f"值: {value}")\n')
+        self.assertTrue(source.isascii())
+        self.assertEqual(python36_fstring_issues(source), [])
+
+    def test_same_quote_nesting_is_detected(self):
+        source = 'x = f"{d["k"]}"\n'
+        issues = python36_fstring_issues(source)
+        self.assertTrue(issues)
+        self.assertIn("引号", issues[0][1])
+
+    def test_clean_source_has_no_issues(self):
+        source = 'x = 1\ny = f"{x}"\n'
+        self.assertEqual(python36_fstring_issues(source), [])
+
+    def test_convert_text_rejects_unsafe_source(self):
+        with self.assertRaises(SourceCompatibilityError):
+            convert_text(
+                "# -*- coding: utf-8 -*-\nlogger.info(f\"{n or '未配置'}\")\n",
+                "ascii",
+            )
+
+
 def _install_tornado_stub():
     if "tornado.web" in sys.modules:
         return
@@ -221,6 +262,12 @@ class ServiceEquivalenceTest(unittest.TestCase):
 
     def test_syntax_error_free(self):
         compile(self.raw_ascii.decode("ascii"), "<ascii_safe>", "exec")
+
+    def test_no_python36_fstring_issues(self):
+        self.assertEqual(
+            python36_fstring_issues(self.raw_ascii.decode("ascii")), []
+        )
+        self.assertEqual(python36_fstring_issues(self.raw_gbk.decode("gbk")), [])
 
     def test_gbk_version_is_gbk_and_readable(self):
         # 真 GBK：按 gbk 解码成功，且中文不是乱码
