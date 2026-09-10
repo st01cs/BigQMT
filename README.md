@@ -92,6 +92,7 @@ copy .env.example .env
 | `QMT_PROCESS_NAMES` | 进程名白名单（逗号分隔） | 可选，默认 `XtItClient.exe` |
 | `QMT_AUTO_RESTART` / `QMT_MAX_RESTARTS` | 心跳自动重启开关与上限 | 可选 |
 | `QMT_LOGIN_TIMEOUT` | 单次登录/就绪等待超时（秒） | 可选，默认 60 |
+| `QMT_LOGIN_ACTION_DELAY` / `QMT_LOGIN_TYPE_INTERVAL` | 自动登录动作停顿 / 逐字符输入间隔（秒）；密码易填错框时加大 | 可选，默认 0.5 / 0.05 |
 | `QMT_STRATEGY_ENABLED` | 启用策略自动运行 | 默认 `false` |
 | `QMT_STRATEGY_CMD` | 策略命令行（如 `python D:\strat\main.py --trade`） | 启用时必填 |
 | `QMT_STRATEGY_PYTHON` | 策略解释器（需可 `import xtquant`；默认当前解释器） | 可选 |

@@ -118,6 +118,33 @@ def _control_class(control) -> str:
         return ""
 
 
+def _raw_element(control):
+    """取 UIA 原生元素，用于读取 IsPassword / 焦点等属性。"""
+    return getattr(getattr(control, "element_info", None), "element", None)
+
+
+def _edit_is_password(control) -> Optional[bool]:
+    """控件是否为密码框（UIA CurrentIsPassword）；无法判定返回 None。"""
+    element = _raw_element(control)
+    if element is None:
+        return None
+    try:
+        return bool(element.CurrentIsPassword)
+    except Exception:
+        return None
+
+
+def _has_keyboard_focus(control) -> Optional[bool]:
+    """控件当前是否持有键盘焦点（UIA CurrentHasKeyboardFocus）；无法判定返回 None。"""
+    element = _raw_element(control)
+    if element is None:
+        return None
+    try:
+        return bool(element.CurrentHasKeyboardFocus)
+    except Exception:
+        return None
+
+
 def _iter_children(window):
     fn = getattr(window, "children", None)
     if fn is None:
@@ -145,11 +172,22 @@ class NativeQmtAutoLogin:
         exe_path: Optional[str] = None,
         password: Optional[str] = None,
         data_dir: Optional[str] = None,
+        action_delay: float = 0.5,
+        type_interval: float = 0.05,
     ):
         self.exe_path = exe_path
         self.password = password
         self.data_dir = data_dir
         self.last_error: Optional[str] = None
+        # 动作间停顿：GUI 焦点/输入框就绪需要时间，避免密码被打进错误输入框
+        self.action_delay = max(0.0, float(action_delay or 0.0))
+        self.type_interval = max(0.0, float(type_interval or 0.0))
+
+    def _pause(self, mult: float = 1.0) -> None:
+        """动作间停顿（mult 为 action_delay 的倍数）。"""
+        delay = self.action_delay * mult
+        if delay > 0:
+            time.sleep(delay)
 
     # ------------------------------------------------------------------ #
     # 登录态判定
@@ -215,13 +253,17 @@ class NativeQmtAutoLogin:
         """定位密码输入框。
 
         策略：
-        1. 控件文本/名称含「密码/password」的 Edit；
-        2. 退化为「第 2 个 Edit」（假定 [账号, 密码, (验证码)] 顺序）；
-        3. 仅 1 个 Edit 时取其本身。
+        1. UIA `IsPassword=True` 的 Edit（最可靠，与控件顺序/命名无关）；
+        2. 控件文本/名称含「密码/password」的 Edit；
+        3. 退化为「第 2 个 Edit」（假定 [账号, 密码, (验证码)] 顺序）；
+        4. 仅 1 个 Edit 时取其本身。
         """
         edits = _iter_edit_controls(window)
         if not edits:
             return None
+        for edit in edits:
+            if _edit_is_password(edit) is True:
+                return edit
         for edit in edits:
             text = (_control_text(edit) + " " + str(getattr(edit, "friendly_class_name", "") or "")).lower()
             if "密码" in text or "password" in text:
@@ -277,6 +319,47 @@ class NativeQmtAutoLogin:
         Application, _ = _import_pywinauto()
         return Application(backend="uia").connect(path=self.exe_path, timeout=5)
 
+    def _focus_edit(self, edit) -> bool:
+        """确保控件获得键盘焦点：click_input -> 校验 -> 必要时 set_focus 重试。
+
+        返回 True 表示已（或无法判定时假定已）就绪；False 表示明确未获得焦点。
+        """
+        try:
+            edit.click_input()
+        except Exception:
+            pass
+        self._pause()
+        focus = _has_keyboard_focus(edit)
+        if focus is False:
+            try:
+                edit.set_focus()
+            except Exception:
+                pass
+            self._pause()
+            focus = _has_keyboard_focus(edit)
+        if focus is False:
+            logger.debug("密码框未获得键盘焦点（点击/set_focus 均未生效）")
+            return False
+        return True
+
+    def _type_password(self, edit) -> None:
+        """清空后逐字符输入密码，动作间留停顿，降低错框/丢字概率。"""
+        try:
+            edit.type_keys("^a")
+        except Exception:
+            pass
+        self._pause()
+        try:
+            edit.type_keys("{DEL}")
+        except Exception:
+            pass
+        self._pause()
+        try:
+            edit.type_keys(self.password, with_spaces=True, pause=self.type_interval)
+        except TypeError:
+            # 兼容只接受一个参数的控件/假对象
+            edit.type_keys(self.password)
+
     def _do_login_once(self) -> None:
         """执行一次密码填写 + 提交（含验证码尝试）。"""
         app = self._connect()
@@ -285,15 +368,21 @@ class NativeQmtAutoLogin:
             win.set_focus()
         except Exception:
             pass
-        time.sleep(1)
+        self._pause(mult=2.0)  # 等待登录窗口稳定/获得焦点
 
         pwd_edit = self.find_password_edit(win)
         pyautogui = _import_pyautogui()
         if pwd_edit is not None:
+            logger.debug("密码框定位: %r", _control_text(pwd_edit))
+            if not self._focus_edit(pwd_edit):
+                # 点击未生效：显式 set_focus 兜底后再输入一次
+                try:
+                    pwd_edit.set_focus()
+                except Exception:
+                    pass
+                self._pause()
             try:
-                pwd_edit.click_input()
-                pwd_edit.type_keys("^a")
-                pwd_edit.type_keys(self.password)
+                self._type_password(pwd_edit)
             except Exception:
                 try:
                     pwd_edit.set_text(self.password)
@@ -301,11 +390,13 @@ class NativeQmtAutoLogin:
                     raise AutoLoginError("无法向密码框输入密码")
         elif pyautogui is not None:
             pyautogui.press("tab")  # 从账号框跳到密码框
-            pyautogui.typewrite(self.password, interval=0.05)
+            self._pause()
+            pyautogui.typewrite(self.password, interval=self.type_interval)
         else:
             raise AutoLoginError("找不到密码输入框且缺少 pyautogui 退化路径")
 
         # 提交登录
+        self._pause()
         button = self.find_login_button(win)
         try:
             if button is not None:

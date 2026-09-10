@@ -26,6 +26,22 @@ class ConfigFromMappingTest(unittest.TestCase):
         self.assertEqual(cfg.poll_interval, 20.0)
         self.assertEqual(cfg.login_timeout, 60)
         self.assertEqual(cfg.manual_login_wait, 120)
+        self.assertEqual(cfg.login_action_delay, 0.5)
+        self.assertEqual(cfg.login_type_interval, 0.05)
+
+    def test_login_pacing_mapping(self):
+        cfg = config_from_mapping(
+            {"QMT_LOGIN_ACTION_DELAY": "0.8", "QMT_LOGIN_TYPE_INTERVAL": "0.12"}
+        )
+        self.assertEqual(cfg.login_action_delay, 0.8)
+        self.assertEqual(cfg.login_type_interval, 0.12)
+
+    def test_login_pacing_invalid_falls_back(self):
+        cfg = config_from_mapping(
+            {"QMT_LOGIN_ACTION_DELAY": "abc", "QMT_LOGIN_TYPE_INTERVAL": "x"}
+        )
+        self.assertEqual(cfg.login_action_delay, 0.5)
+        self.assertEqual(cfg.login_type_interval, 0.05)
 
     def test_full_mapping(self):
         cfg = config_from_mapping(

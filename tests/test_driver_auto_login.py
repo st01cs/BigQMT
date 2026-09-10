@@ -2,6 +2,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import bigqmt.core.qmt._connection as connection_mod
 from bigqmt.config import QmtConfig
 from bigqmt.core.qmt._connection import DefaultQmtDriver
 from bigqmt.core.qmt._paths import QmtLocations
@@ -76,6 +77,17 @@ class DefaultDriverAutoLoginTest(unittest.TestCase):
         driver._auto_login = stub
         with mock.patch.object(driver, "_xtdata_connected", return_value=False):
             self.assertTrue(driver.is_logged_in())
+
+    def test_login_pacing_config_passed_to_auto_login(self):
+        config = QmtConfig(
+            password="secret", login_action_delay=0.9, login_type_interval=0.11
+        )
+        with mock.patch.object(connection_mod, "NativeQmtAutoLogin") as fake_cls:
+            DefaultQmtDriver(config, _locations())
+        fake_cls.assert_called_once()
+        kwargs = fake_cls.call_args.kwargs
+        self.assertEqual(kwargs["action_delay"], 0.9)
+        self.assertEqual(kwargs["type_interval"], 0.11)
 
 
 if __name__ == "__main__":

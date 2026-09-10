@@ -112,6 +112,8 @@ class DefaultQmtDriver(QmtDriver):
                 exe_path=exe,
                 password=self.config.password,
                 data_dir=data_dir,
+                action_delay=self.config.login_action_delay,
+                type_interval=self.config.login_type_interval,
             )
         except Exception:  # pragma: no cover - 构建失败则退化为无自动登录
             return None

@@ -86,6 +86,9 @@ class QmtConfig:
     poll_interval: float = 20.0
     login_timeout: int = 60
     manual_login_wait: int = 120
+    # 自动登录动作节奏（GUI 焦点/输入框就绪需要时间，避免密码填错框）
+    login_action_delay: float = 0.5
+    login_type_interval: float = 0.05
     # ---- 策略自动运行（S1，见 docs/QMT_STRATEGY_RUNNER_PLAN.md 第 4 节） ----
     strategy_enabled: bool = False
     strategy_cmd: Optional[str] = None
@@ -132,6 +135,8 @@ def config_from_mapping(mapping: Mapping[str, Any]) -> QmtConfig:
         poll_interval=_to_float(get("QMT_POLL_INTERVAL"), 20.0),
         login_timeout=_to_int(get("QMT_LOGIN_TIMEOUT"), 60),
         manual_login_wait=_to_int(get("QMT_MANUAL_LOGIN_WAIT"), 120),
+        login_action_delay=_to_float(get("QMT_LOGIN_ACTION_DELAY"), 0.5),
+        login_type_interval=_to_float(get("QMT_LOGIN_TYPE_INTERVAL"), 0.05),
         strategy_enabled=_to_bool(get("QMT_STRATEGY_ENABLED"), False),
         strategy_cmd=_to_str(get("QMT_STRATEGY_CMD")) or None,
         strategy_python=_to_str(get("QMT_STRATEGY_PYTHON")) or None,
