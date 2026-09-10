@@ -155,6 +155,22 @@ def is_empty_result(value):
         return False
 
 
+def is_port_in_use(port, host='127.0.0.1', timeout=0.5):
+    """检测端口是否已被占用（QMT 停止策略后套接字可能仍被占用）。"""
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.settimeout(timeout)
+        return sock.connect_ex((host, int(port))) == 0
+    except Exception:
+        return False
+    finally:
+        try:
+            sock.close()
+        except Exception:
+            pass
+
+
 #: `/api/data/query` 允许调用的只读方法白名单。
 #: 只收录「查询/读取」类方法；任何下单、撤单、任务控制、参数设置类方法都不在此列。
 #: 另注意：`get_scale_and_rank` / `get_scale_and_stock` 实测会阻塞并拖死策略线程
@@ -1319,9 +1335,21 @@ def init(ContextInfo):
         app.ContextInfo = ContextInfo
         app.accountID = ContextInfo.accountID
 
+        if is_port_in_use(PORT):
+            logger.error(
+                "端口 %s 已被占用：通常是上一个策略实例未完全退出（QMT 停止策略后"
+                "套接字可能仍被占用，或客户端里有第二个本策略实例）。"
+                "请完全退出并重启 QMT 客户端（确认任务管理器中无 XtItClient.exe），"
+                "再运行本策略，且只运行一个实例。", PORT
+            )
+            return
         log_startup_self_check()
         app.listen(PORT, address='0.0.0.0')
         logger.info(f"QMT HTTP Server 启动于 http://0.0.0.0:{PORT} (全部API已加载)")
         IOLoop.current().start()
     except Exception as e:
+        if "10048" in str(e):
+            logger.error(
+                "端口 %s 被占用（WinError 10048）：请完全重启 QMT 客户端后重试", PORT
+            )
         logger.exception(f"server start failed: {e}")

@@ -328,6 +328,33 @@ class NormalizeDate8Test(unittest.TestCase):
 
 
 @unittest.skipUnless(SERVICE_FILE.is_file(), "缺少 bigqmt/service/http.py")
+class PortInUseTest(unittest.TestCase):
+    """启动前检测端口占用（QMT 停止策略后套接字可能泄漏）。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.module = load_service_module()
+
+    def test_closed_port_is_free(self):
+        self.assertFalse(self.module.is_port_in_use(1))  # 1 号端口不会有服务监听
+
+    def test_open_port_is_detected(self):
+        import socket
+
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+        try:
+            self.assertTrue(self.module.is_port_in_use(port))
+        finally:
+            server.close()
+
+    def test_invalid_input_is_safe(self):
+        self.assertFalse(self.module.is_port_in_use("not-a-port"))
+
+
+@unittest.skipUnless(SERVICE_FILE.is_file(), "缺少 bigqmt/service/http.py")
 class HandlerCallStyleTest(unittest.TestCase):
     """回归防护：这几个 handler 必须走 ContextInfo 方法，而不是未注入的全局函数。"""
 
