@@ -1904,30 +1904,6 @@ def get_product_init_share(code: str = '') -> Dict[str, Any]:
 
 
 @mcp.tool()
-def get_scale_and_rank(stocks: List[str] = None) -> Dict[str, Any]:
-    """
-    获取规模排名
-
-    Args:
-        stocks: 股票列表（也接受逗号字符串）
-    """
-    return _ctx_query("get_scale_and_rank", _as_list(stocks))
-
-
-@mcp.tool()
-def get_scale_and_stock(total: float, stock_value: float, stock: str) -> Dict[str, Any]:
-    """
-    按规模计算股票权重
-
-    Args:
-        total: 总规模
-        stock_value: 个股市值
-        stock: 股票代码
-    """
-    return _ctx_query("get_scale_and_stock", total, stock_value, stock)
-
-
-@mcp.tool()
 def get_commission() -> Dict[str, Any]:
     """获取当前佣金设置（只读）"""
     return _ctx_query("get_commission")

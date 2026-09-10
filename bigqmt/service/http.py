@@ -157,6 +157,8 @@ def is_empty_result(value):
 
 #: `/api/data/query` 允许调用的只读方法白名单。
 #: 只收录「查询/读取」类方法；任何下单、撤单、任务控制、参数设置类方法都不在此列。
+#: 另注意：`get_scale_and_rank` / `get_scale_and_stock` 实测会阻塞并拖死策略线程
+#: （native 层崩溃，无 Python traceback），故不收录。
 READONLY_CTX_METHODS = (
     'get_close_price', 'get_last_close', 'get_market_data_ex_ori', 'subscribe_whole_quote',
     'get_finance', 'get_raw_financial_data', 'get_float_caps', 'get_holder_num',
@@ -164,7 +166,7 @@ READONLY_CTX_METHODS = (
     'is_stock', 'is_future', 'is_fund', 'get_stock_type', 'get_ETF_list',
     'get_option_undl', 'stockcode_in_rzrk',
     'get_net_value', 'get_product_asset_value', 'get_product_share',
-    'get_product_init_share', 'get_scale_and_rank', 'get_scale_and_stock',
+    'get_product_init_share',
     'get_back_test_index', 'get_commission', 'get_slippage',
     'load_stk_list', 'load_stk_vol_list', 'get_turn_over_rate',
 )

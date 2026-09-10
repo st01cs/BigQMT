@@ -42,7 +42,7 @@ EXPECTED_TOOLS = {
     "get_order_deal", "get_order_status", "get_portfolio_info", "get_positions",
     "get_product_asset_value", "get_product_init_share", "get_product_share",
     "get_raw_financial_data", "get_realtime_quote", "get_risk_free_rate",
-    "get_scale_and_rank", "get_scale_and_stock", "get_sector", "get_slippage",
+    "get_sector", "get_slippage",
     "get_smallcap", "get_stock_list_in_sector", "get_stock_name",
     "get_stock_type", "get_svol", "get_tick_timetag", "get_top10_share_holder",
     "get_total_assets", "get_total_share", "get_trade_detail_data",
@@ -99,7 +99,7 @@ class McpRegistryTest(unittest.TestCase):
     def test_expected_tool_set_is_registered(self):
         names = {tool.name for tool in self._resolve(mcp_server.mcp.list_tools())}
         self.assertEqual(names, EXPECTED_TOOLS)
-        self.assertEqual(len(names), 104)
+        self.assertEqual(len(names), 102)
 
     def test_no_trading_tools_are_registered(self):
         names = {tool.name for tool in self._resolve(mcp_server.mcp.list_tools())}
