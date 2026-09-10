@@ -125,6 +125,25 @@ ContextInfo 113 个方法 / 后端 108 条路由 / MCP 56 个工具，缺口分�
 最终：后端 85 条路由、MCP 104 个工具（53 迁移 + 3 资金流 + 51 只读 − 3 交易），
 全部为只读能力。
 
+### 只读接口实测结果（2026-09-10，实盘策略上下文，标的 601899.SH）
+
+新增的 51 个只读工具逐个实测后的分类（工具数现为 102）：
+
+| 分类 | 数量 | 工具 |
+| --- | --- | --- |
+| 返回真实数据 | 27 | account_status、context_info、is_last_bar/new_bar/suspended/sector/typed、industry_name、trade_detail_data、last_order_id、ipo_data、last_close、close_price、market_data_ex_ori、float_caps、holder_num、is_stock/future/fund、stock_type、net_value、product_asset_value/share/init_share、commission、slippage、subscribe_whole_quote |
+| 接口通、本次查询为空 | 6 | order_deal、value_by_order_id、new_purchase_limit、debt/assure/enable_short_contract |
+| 本机无数据或需入参 | 15 | ext_data、ext_data_rank、factor_value、factor_rank（值 null）、finance、raw_financial_data、ETF_list、option_undl、back_test_index、smallcap、midcap、largecap、turn_over_rate（NaN）、load_stk_list、load_stk_vol_list |
+| 运行时不存在 | 1 | stockcode_in_rzrk（白名单内但 ctx 无此方法，返回明确 503） |
+| 已移除 | 2 | get_scale_and_rank、get_scale_and_stock（调用后策略线程崩溃） |
+
+顺带修掉的两个隐患：
+
+- 查询通道返回 NaN/Infinity 时 `json.dumps` 会输出裸 `NaN`，不是合法 JSON——已加
+  `sanitize_json` 统一转 null（清理后按空数据返回 503）。
+- 端口 10086 被上一个已停止策略的残留 socket 占用时，重启策略只会留下 WinError 10048
+  traceback——`init()` 现在启动前预检端口并打印可执行指引。
+
 ## 6. 验收标准
 
 - `python -m unittest discover -s tests -t .` 全绿，既有 118 个用例不回归。
