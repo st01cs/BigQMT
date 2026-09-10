@@ -9,8 +9,10 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
+from pathlib import Path
 from typing import Optional
 
 from bigqmt.config import QmtConfig, load_qmt_config
@@ -67,6 +69,23 @@ def build_parser() -> argparse.ArgumentParser:
         )
         p.add_argument("--timeout", type=float, default=None, help="就绪等待超时（秒）")
 
+    mcp_svc = sub.add_parser("mcp", help="管理 MCP 服务进程（bigqmt.mcp）")
+    mcp_sub = mcp_svc.add_subparsers(dest="mcp_action", required=True)
+    for action in ("start", "stop", "status", "restart"):
+        p = mcp_sub.add_parser(action, help=f"MCP 服务 {action}")
+        p.add_argument("--host", default=None, help="MCP 监听地址（覆盖配置）")
+        p.add_argument("--port", type=int, default=None, help="MCP 监听端口（覆盖配置）")
+        p.add_argument("--python", default=None, help="运行 MCP 服务的解释器（默认当前解释器）")
+        p.add_argument(
+            "--auth-token",
+            dest="auth_token",
+            default=None,
+            help="启用 Bearer 鉴权；通过环境变量传给子进程，不出现在命令行",
+        )
+        p.add_argument("--allow-remote", action="store_true", help="允许绑定非回环地址")
+        p.add_argument("--timeout", type=float, default=None, help="启动确认超时（秒）")
+        p.add_argument("--skip-qmt-check", action="store_true", help="跳过 QMT 就绪状态提示")
+
     return parser
 
 
@@ -93,6 +112,93 @@ def _print_strategy_status(status: dict) -> None:
     print(f"restart_count   : {status['strategy']['restart_count']}")
     print(f"strategy error  : {status['strategy']['last_error']}")
     print(f"strategy log    : {status['strategy']['log_file']}")
+
+
+def _print_mcp_status(runner, config) -> None:
+    """打印 MCP 服务状态（本进程未持有子进程时回退到 PID 文件）。"""
+    status = runner.status()
+    running = runner.is_running()
+    pid = status["pid"]
+    if pid is None and running:
+        try:
+            pid = int(Path(status["pid_file"]).read_text(encoding="utf-8").strip())
+        except (OSError, ValueError):
+            pid = None
+    print(f"mcp url         : http://{config.host}:{config.port}/mcp")
+    print(f"mcp state       : {status['state']}")
+    print(f"mcp running     : {running}")
+    print(f"mcp pid         : {pid}")
+    print(f"mcp auth        : {'Bearer' if config.auth_token else 'off'}")
+    print(f"qmt backend     : {config.qmt_base_url}")
+    print(f"mcp log         : {status['log_file']}")
+    print(f"last_error      : {status['last_error']}")
+
+
+def _cmd_mcp(args) -> int:
+    """管理 MCP 服务进程（bigqmt.mcp）。"""
+    from bigqmt.mcp.config import McpConfigError, load_mcp_config
+    from bigqmt.mcp.runner import build_runner
+
+    action = args.mcp_action
+    config = load_mcp_config()
+    updates: dict = {}
+    if args.host:
+        updates["host"] = args.host
+    if args.port:
+        updates["port"] = args.port
+    if args.allow_remote:
+        updates["allow_remote"] = True
+    if args.auth_token:
+        updates["auth_token"] = args.auth_token
+    if updates:
+        config = config.with_updates(**updates)
+
+    try:
+        config.validate()
+    except McpConfigError as exc:
+        print(f"[bigqmt] MCP 配置错误: {exc}")
+        return 2
+
+    if args.auth_token:
+        # 子进程按环境变量读取，避免 token 出现在命令行
+        os.environ["QMT_MCP_AUTH_TOKEN"] = args.auth_token
+
+    runner = build_runner(config, python=args.python)
+
+    if action == "status":
+        _print_mcp_status(runner, config)
+        return 0
+
+    if action == "stop":
+        runner.stop_external()
+        print("[bigqmt] MCP 服务已停止")
+        return 0
+
+    if action in ("start", "restart"):
+        if action == "restart":
+            runner.stop_external()
+        if not args.skip_qmt_check:
+            try:
+                state = get_qmt_manager().status().get("state")
+            except Exception as exc:  # 状态探测失败不阻断启动
+                state = f"未知({exc})"
+            if state != "ready":
+                print(
+                    f"[bigqmt] 警告：QMT 当前状态为 {state}，"
+                    "MCP 工具的行情/账户调用可能失败"
+                )
+        if not runner.start(timeout=args.timeout):
+            print(f"[bigqmt] MCP 服务启动失败: {runner.status()['last_error']}")
+            return 1
+        status = runner.status()
+        print(
+            f"[bigqmt] MCP 服务已启动 pid={status['pid']} "
+            f"http://{config.host}:{config.port}/mcp"
+        )
+        print(f"[bigqmt] 日志: {status['log_file']}")
+        return 0
+
+    return 2
 
 
 def _config_with_strategy(args) -> QmtConfig:
@@ -207,6 +313,8 @@ def main(argv: Optional[list] = None) -> int:
         return _cmd_start_with_strategy(args)
     if args.command == "strategy":
         return _cmd_strategy(args)
+    if args.command == "mcp":
+        return _cmd_mcp(args)
 
     manager = get_qmt_manager()
 
