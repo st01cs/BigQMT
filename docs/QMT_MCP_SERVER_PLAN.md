@@ -60,7 +60,7 @@ bigqmt/
 │  ├─ config.py       # McpConfig：host/port/token/qmt_base_url/auth_token/allow_remote
 │  ├─ client.py       # QMTClient + QMTApiError（requests 懒加载）
 │  ├─ auth.py         # BearerAuthMiddleware（纯 ASGI，无 fastmcp 版本耦合）
-│  ├─ server.py       # FastMCP 实例 + 53 tools + 2 resources
+│  ├─ server.py       # FastMCP 实例 + 56 tools + 2 resources
 │  ├─ cli.py          # 参数解析 + 监听地址校验 + 启动
 │  └─ __main__.py     # python -m bigqmt.mcp
 └─ service/
@@ -105,7 +105,7 @@ bigqmt/
 ## 6. 验收标准
 
 - `python -m unittest discover -s tests -t .` 全绿，既有 118 个用例不回归。
-- `initialize` 协商 `2025-06-18`；`tools/list` 53 个、`resources/list` 2 个，与迁移前一致。
+- `initialize` 协商 `2025-06-18`；`tools/list` 56 个（迁移基线 53 + 资金流 3 个）、`resources/list` 2 个。
 - `get_stock_name('600000.SH')` 返回「浦发银行」；`get_realtime_quote(['600000.SH'])` 返回真实 tick；
   `get_instrument_detail` 不再 404；`get_trading_dates` 返回真实交易日。
 - 后端失败时工具结果为 `isError=true`。

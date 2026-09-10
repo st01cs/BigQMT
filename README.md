@@ -212,8 +212,11 @@ python -m unittest tests.test_mcp_protocol_e2e -v
 
 ## MCP 服务
 
-把 QMT 的行情/账户/交易能力暴露为 MCP 工具（53 个 tools + 2 个 resources），
+把 QMT 的行情/账户/交易能力暴露为 MCP 工具（56 个 tools + 2 个 resources），
 适合被支持 MCP 的客户端（Claude Desktop、Codex 等）直接调用。
+
+其中资金流相关：`get_north_finance_change`（北向资金，市场级）、
+`get_hkt_statistics` / `get_hkt_details`（个股港通统计与逐日明细）。
 
 ```bash
 # 默认仅本机可访问：http://127.0.0.1:9000/mcp
@@ -270,7 +273,7 @@ BigQMT/
 │  │  ├─ client.py           # QMT HTTP 客户端 + QMTApiError
 │  │  ├─ auth.py             # Bearer 鉴权中间件
 │  │  ├─ runner.py           # MCP 服务进程管理（复用 StrategyRunner）
-│  │  ├─ server.py           # 53 tools + 2 resources
+│  │  ├─ server.py           # 56 tools + 2 resources
 │  │  └─ cli.py / __main__.py
 │  ├─ service/
 │  │  └─ http.py             # 部署到 QMT 内的 Tornado API（Py3.6）
