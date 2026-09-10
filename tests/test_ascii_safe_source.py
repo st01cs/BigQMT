@@ -1,7 +1,5 @@
 """纯 ASCII 源码转换工具的测试（含与真实服务脚本的等价性验证）。"""
 
-import importlib.util
-import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,6 +13,7 @@ from scripts.ascii_safe_source import (
     to_ascii,
     with_coding_declaration,
 )
+from tests.service_http_stub import load_service_module
 
 SERVICE_FILE = Path(__file__).resolve().parents[1] / "bigqmt" / "service" / "http.py"
 
@@ -161,52 +160,8 @@ class FStringCompatTest(unittest.TestCase):
             )
 
 
-def _install_tornado_stub():
-    if "tornado.web" in sys.modules:
-        return
-    import types
-
-    tornado = types.ModuleType("tornado")
-    web = types.ModuleType("tornado.web")
-    ioloop = types.ModuleType("tornado.ioloop")
-
-    class RequestHandler:
-        pass
-
-    class HTTPError(Exception):
-        def __init__(self, status_code=500, log_message=None):
-            super().__init__(log_message)
-            self.status_code = status_code
-
-    class Application:
-        def __init__(self, routes=None, **kwargs):
-            self.routes = routes or []
-
-    class IOLoop:
-        @staticmethod
-        def current():
-            return IOLoop()
-
-        def start(self):
-            pass
-
-    web.Application = Application
-    web.RequestHandler = RequestHandler
-    web.HTTPError = HTTPError
-    ioloop.IOLoop = IOLoop
-    tornado.web = web
-    tornado.ioloop = ioloop
-    sys.modules["tornado"] = tornado
-    sys.modules["tornado.web"] = web
-    sys.modules["tornado.ioloop"] = ioloop
-
-
 def _load(path: Path, name: str):
-    _install_tornado_stub()
-    spec = importlib.util.spec_from_file_location(name, path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return load_service_module(path=path, module_name=name)
 
 
 @unittest.skipUnless(SERVICE_FILE.is_file(), "缺少 bigqmt/service/http.py")

@@ -4,91 +4,10 @@
 本机没有 tornado，因此这里注入最小 stub 后按文件加载，直接验证其中的纯逻辑。
 """
 
-import importlib.util
-import os
-import sys
-import types
+import json
 import unittest
-from pathlib import Path
 
-SERVICE_FILE = Path(__file__).resolve().parents[1] / "bigqmt" / "service" / "http.py"
-
-
-class _StubRequestHandler:
-    pass
-
-
-class _StubHTTPError(Exception):
-    def __init__(self, status_code=500, log_message=None):
-        super().__init__(log_message)
-        self.status_code = status_code
-        self.log_message = log_message
-
-
-class _StubApplication:
-    def __init__(self, routes=None, **kwargs):
-        self.routes = routes or []
-        self.ContextInfo = None
-        self.accountID = None
-
-    def listen(self, *args, **kwargs):
-        pass
-
-
-class _StubIOLoop:
-    @staticmethod
-    def current():
-        return _StubIOLoop()
-
-    def start(self):
-        pass
-
-
-def _install_tornado_stub():
-    if "tornado.web" in sys.modules:
-        return
-    try:  # 真实 tornado 可用时优先使用
-        import tornado.ioloop  # noqa: F401
-        import tornado.web  # noqa: F401
-
-        return
-    except ImportError:
-        pass
-    tornado = types.ModuleType("tornado")
-    web = types.ModuleType("tornado.web")
-    ioloop = types.ModuleType("tornado.ioloop")
-    web.Application = _StubApplication
-    web.RequestHandler = _StubRequestHandler
-    web.HTTPError = _StubHTTPError
-    ioloop.IOLoop = _StubIOLoop
-    tornado.web = web
-    tornado.ioloop = ioloop
-    sys.modules["tornado"] = tornado
-    sys.modules["tornado.web"] = web
-    sys.modules["tornado.ioloop"] = ioloop
-
-
-def load_service_module(env=None):
-    """按文件加载服务脚本；env 为 None 时不改环境变量。"""
-    _install_tornado_stub()
-    saved = {}
-    if env is not None:
-        for key in ("QMT_ACCOUNT_ID", "QMT_HTTP_TOKEN", "QMT_HTTP_PORT"):
-            saved[key] = os.environ.pop(key, None)
-        for key, value in env.items():
-            os.environ[key] = value
-    try:
-        spec = importlib.util.spec_from_file_location("qmt_service_http", SERVICE_FILE)
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-    finally:
-        if env is not None:
-            for key, value in saved.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
-    return module
+from tests.service_http_stub import SERVICE_FILE, load_service_module
 
 
 @unittest.skipUnless(SERVICE_FILE.is_file(), "缺少 bigqmt/service/http.py")
@@ -270,6 +189,53 @@ class RouteRegistrationTest(unittest.TestCase):
         self.assertIn("/api/sys/account_status", patterns)
         self.assertIn("/api/sys/python_version", patterns)
         self.assertIn("/api/money/total", patterns)
+
+
+@unittest.skipUnless(SERVICE_FILE.is_file(), "缺少 bigqmt/service/http.py")
+class WriteErrorTest(unittest.TestCase):
+    """错误响应必须带上 raise HTTPError 时给的说明，而不是默认 reason。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.module = load_service_module()
+
+    def _call_write_error(self, error, status=500, reason="Service Unavailable"):
+        captured = {}
+
+        class Handler:
+            _reason = reason
+
+            def finish(self, payload):
+                captured["payload"] = payload
+
+        self.module.BaseHandler.write_error(
+            Handler(), status, exc_info=(type(error), error, None)
+        )
+        return json.loads(captured["payload"])
+
+    def test_custom_message_is_surfaced(self):
+        error = self.module.HTTPError(503, "资金账号未配置：请设置 QMT_ACCOUNT_ID")
+        payload = self._call_write_error(error, status=503)
+        self.assertEqual(payload["status_code"], 503)
+        self.assertIn("QMT_ACCOUNT_ID", payload["error"])
+        self.assertNotEqual(payload["error"], "Service Unavailable")
+
+    def test_falls_back_to_reason_without_exception(self):
+        captured = {}
+
+        class Handler:
+            _reason = "Unauthorized"
+
+            def finish(self, payload):
+                captured["payload"] = payload
+
+        self.module.BaseHandler.write_error(Handler(), 401)
+        self.assertEqual(json.loads(captured["payload"])["error"], "Unauthorized")
+
+    def test_blank_log_message_falls_back(self):
+        error = self.module.HTTPError(400, "")
+        payload = self._call_write_error(error, status=400, reason="Bad Request")
+        self.assertEqual(payload["error"], "Bad Request")
 
 
 if __name__ == "__main__":

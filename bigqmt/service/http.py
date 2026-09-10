@@ -179,8 +179,16 @@ class BaseHandler(RequestHandler):
         self.set_header("Content-Type", "application/json; charset=utf-8")
 
     def write_error(self, status_code, **kwargs):
+        # 优先使用 raise HTTPError(...) 时传入的 log_message，
+        # 否则客户端只会看到 Tornado 的默认 reason（如 "Service Unavailable"）
+        message = self._reason
+        exc_info = kwargs.get('exc_info')
+        if exc_info:
+            log_message = getattr(exc_info[1], 'log_message', None)
+            if log_message:
+                message = log_message
         self.finish(json.dumps({
-            "error": self._reason,
+            "error": message,
             "status_code": status_code
         }, ensure_ascii=False))
 
