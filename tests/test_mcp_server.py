@@ -22,36 +22,35 @@ if HAS_FASTMCP:
 
 #: 工具集基线（迁移 53 + 资金流 3 + 只读查询 51，去除 3 个交易工具）
 EXPECTED_TOOLS = {
-    "bsm_iv", "bsm_price", "get_ETF_list", "get_account_status",
+    "bsm_iv", "bsm_price", "get_account_status",
     "get_all_subscription", "get_assure_contract", "get_available_funds",
-    "get_back_test_index", "get_bar_timetag", "get_bvol", "get_close_price",
+    "get_bar_timetag", "get_bvol", "get_close_price",
     "get_commission", "get_context_info", "get_contract_expire_date",
     "get_contract_multiplier", "get_date_location", "get_debt_contract",
     "get_divid_factors", "get_enable_short_contract", "get_etf_info",
-    "get_etf_iopv", "get_ext_data", "get_ext_data_rank", "get_factor_data",
-    "get_factor_rank", "get_factor_value", "get_finance", "get_financial_data",
+    "get_etf_iopv", "get_financial_data",
     "get_float_caps", "get_his_contract_list", "get_his_index_data",
     "get_his_st_data", "get_history_data", "get_hkt_details",
     "get_hkt_statistics", "get_holder_num", "get_industry",
     "get_industry_name_of_stock", "get_instrument_detail", "get_ipo_data",
-    "get_largecap", "get_last_close", "get_last_order_id", "get_last_volume",
+    "get_last_close", "get_last_order_id", "get_last_volume",
     "get_local_data", "get_longhubang", "get_main_contract", "get_market_data",
-    "get_market_data_ex_ori", "get_market_extended", "get_midcap",
+    "get_market_data_ex_ori", "get_market_extended",
     "get_net_value", "get_new_purchase_limit", "get_north_finance_change",
     "get_open_date", "get_option_detail_data", "get_option_iv",
-    "get_option_list", "get_option_undl", "get_option_undl_data",
+    "get_option_list", "get_option_undl_data",
     "get_order_deal", "get_order_status", "get_portfolio_info", "get_positions",
     "get_product_asset_value", "get_product_init_share", "get_product_share",
     "get_raw_financial_data", "get_realtime_quote", "get_risk_free_rate",
     "get_sector", "get_slippage",
-    "get_smallcap", "get_stock_list_in_sector", "get_stock_name",
+    "get_stock_list_in_sector", "get_stock_name",
     "get_stock_type", "get_svol", "get_tick_timetag", "get_top10_share_holder",
     "get_total_assets", "get_total_share", "get_trade_detail_data",
-    "get_trading_dates", "get_turn_over_rate", "get_turnover_rate",
+    "get_trading_dates", "get_turnover_rate",
     "get_value_by_order_id", "get_weight_in_index", "is_fund", "is_future",
     "is_last_bar", "is_new_bar", "is_sector_stock", "is_stock",
     "is_suspended_stock", "is_typed_stock", "load_stk_list",
-    "load_stk_vol_list", "stockcode_in_rzrk", "subscribe_quote",
+    "load_stk_vol_list", "subscribe_quote",
     "subscribe_whole_quote", "timetag_to_datetime", "unsubscribe_quote",
 }
 
@@ -104,7 +103,7 @@ class McpRegistryTest(unittest.TestCase):
     def test_expected_tool_set_is_registered(self):
         names = {tool.name for tool in self._resolve(mcp_server.mcp.list_tools())}
         self.assertEqual(names, EXPECTED_TOOLS)
-        self.assertEqual(len(names), 102)
+        self.assertEqual(len(names), 88)
 
     def test_no_trading_tools_are_registered(self):
         names = {tool.name for tool in self._resolve(mcp_server.mcp.list_tools())}

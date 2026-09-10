@@ -122,12 +122,12 @@ ContextInfo 113 个方法 / 后端 108 条路由 / MCP 56 个工具，缺口分�
   目标仓位/期货开平仓/任务控制），MCP 删除 `buy_stock` / `sell_stock` / `cancel_all_orders`
   三个工具与对应客户端方法。测试新增 `FORBIDDEN_TOOLS` 防回归断言。
 
-最终：后端 85 条路由、MCP 104 个工具（53 迁移 + 3 资金流 + 51 只读 − 3 交易），
+最终：后端 85 条路由、MCP 88 个工具（53 迁移 + 3 资金流 + 51 只读 − 3 交易 − 16 无用），
 全部为只读能力。
 
 ### 只读接口实测结果（2026-09-10，实盘策略上下文，标的 601899.SH）
 
-新增的 51 个只读工具逐个实测后的分类（工具数现为 102）：
+新增的 51 个只读工具逐个实测后的分类：
 
 | 分类 | 数量 | 工具 |
 | --- | --- | --- |
@@ -165,10 +165,27 @@ ContextInfo 113 个方法 / 后端 108 条路由 / MCP 56 个工具，缺口分�
 仍未打通：`get_factor_data` / `get_ext_data` / `get_factor_value`（EP 因子与扩展数据域
 在实盘上下文中仍返回空，需要另找命名规则或数据域）。
 
+### 移除本机无法取数的工具（2026-09-10 第五批）
+
+补充下载高级数据后复测，以下 14 个工具仍恒为空，已从 MCP 工具集与后端白名单中移除
+（工具数 102 → 88），避免 LLM 客户端反复尝试必然失败的接口：
+
+| 类别 | 工具 | 原因 |
+| --- | --- | --- |
+| 需要"当前 K 线上下文" | `get_ext_data`、`get_ext_data_rank`、`get_factor_value`、`get_factor_rank`、`get_factor_data`、`get_turn_over_rate` | 本策略只有 `init()` + IOLoop，没有 handlebar 循环，恒返回 null / rank 0 / NaN |
+| 运行时无此方法 | `get_finance`、`get_smallcap`、`get_midcap`、`get_largecap`、`stockcode_in_rzrk` | `_PyContextInfo.py` 里有定义，但实盘 `ContextInfo` 对象上没有 |
+| 需特定上下文 | `get_back_test_index`、`get_option_undl` | 回测上下文 / 有效期权标的 |
+| QMT 自身缺陷 | `get_ETF_list` | `_PyContextInfo.py:571` 调用未定义的全局 `get_etf_list` |
+
+判定依据：同类接口中凡**显式传时间或索引**的都能用（`get_close_price` 传 timetag、
+`get_net_value` 传 barpos、`get_commission` 无上下文依赖），说明不是数据缺失而是缺少
+bar 上下文。若要恢复第一类工具，需要给策略加最小 `handlebar`（订阅标的、每根 bar 更新
+上下文），届时按上表第一行逐个加回即可。
+
 ## 6. 验收标准
 
 - `python -m unittest discover -s tests -t .` 全绿，既有 118 个用例不回归。
-- `initialize` 协商 `2025-06-18`；`tools/list` 104 个（迁移基线 53 + 资金流 3 + 只读查询 51 - 交易 3）、`resources/list` 2 个。
+- `initialize` 协商 `2025-06-18`；`tools/list` 88 个、`resources/list` 3 个。
 - `get_stock_name('600000.SH')` 返回「浦发银行」；`get_realtime_quote(['600000.SH'])` 返回真实 tick；
   `get_instrument_detail` 不再 404；`get_trading_dates` 返回真实交易日。
 - 后端失败时工具结果为 `isError=true`。

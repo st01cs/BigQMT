@@ -213,7 +213,7 @@ python -m unittest tests.test_mcp_protocol_e2e -v
 
 ## MCP 服务
 
-把 QMT 的行情/财务/账户查询能力暴露为 MCP 工具（104 个 tools + 2 个 resources），
+把 QMT 的行情/财务/账户查询能力暴露为 MCP 工具（88 个 tools + 3 个 resources），
 适合被支持 MCP 的客户端（Claude Desktop、Codex 等）直接调用。
 
 **本服务只提供只读能力**：所有下单、撤单、算法单、期货开平仓、任务控制类接口

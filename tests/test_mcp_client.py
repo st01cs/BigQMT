@@ -165,11 +165,9 @@ class QMTClientRequestTest(unittest.TestCase):
             {"method": "get_last_close", "args": ["601899.SH"], "kwargs": {}},
         )
 
-    def test_ext_check_and_context_paths(self):
+    def test_check_account_and_context_paths(self):
         session = _FakeSession()
         client = _client(session)
-        client.get_ext_data("EP_X", "601899.SH", -1)
-        client.get_factor_value("ROE", "601899.SH")
         client.is_last_bar()
         client.get_industry_name_of_stock("SW", "601899.SH")
         client.get_account_status()
@@ -178,19 +176,22 @@ class QMTClientRequestTest(unittest.TestCase):
         self.assertEqual(
             paths,
             [
-                "/api/ext/ext_data",
-                "/api/ext/get_factor_value",
                 "/api/check/is_last_bar",
                 "/api/check/get_industry_name_of_stock",
                 "/api/sys/account_status",
                 "/api/context/period",
             ],
         )
-        self.assertEqual(
-            session.calls[0]["kwargs"]["json"],
-            {"extdataname": "EP_X", "stockcode": "601899.SH", "deviation": -1},
-        )
-        self.assertEqual(session.calls[2]["method"], "GET")
+        self.assertEqual(session.calls[0]["method"], "GET")
+
+    def test_dead_data_methods_are_removed(self):
+        for name in (
+            "get_ext_data", "get_ext_data_rank", "get_factor_value",
+            "get_factor_rank", "get_finance", "get_smallcap", "get_midcap",
+            "get_largecap", "get_ETF_list", "get_back_test_index",
+            "get_option_undl", "get_turn_over_rate",
+        ):
+            self.assertFalse(hasattr(QMTClient, name), name)
 
     def test_python_version_uses_get(self):
         session = _FakeSession()

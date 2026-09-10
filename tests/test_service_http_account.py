@@ -388,11 +388,11 @@ class SanitizeJsonTest(unittest.TestCase):
         captured = {}
 
         class FakeHandler:
-            request = type("Req", (), {"body": json.dumps({"method": "get_turn_over_rate", "args": ["601899.SH"]}).encode()})()
+            request = type("Req", (), {"body": json.dumps({"method": "get_holder_num", "args": [["601899.SH"]]}).encode()})()
 
             def ctx(self):
                 class Ctx:
-                    def get_turn_over_rate(self, code):
+                    def get_holder_num(self, codes):
                         return float("nan")
 
                 return Ctx()

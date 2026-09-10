@@ -188,19 +188,23 @@ def sanitize_json(value):
 
 
 #: `/api/data/query` 允许调用的只读方法白名单。
-#: 只收录「查询/读取」类方法；任何下单、撤单、任务控制、参数设置类方法都不在此列。
-#: 另注意：`get_scale_and_rank` / `get_scale_and_stock` 实测会阻塞并拖死策略线程
-#: （native 层崩溃，无 Python traceback），故不收录。
+#: 只收录「查询/读取」且**实测可用**的方法。已排除：
+#: - `get_scale_and_rank` / `get_scale_and_stock`：实测阻塞并拖死策略线程（native 崩溃）；
+#: - `get_ext_data` / `get_ext_data_rank` / `get_factor_value` / `get_factor_rank` /
+#:   `get_factor_data` / `get_turn_over_rate`：依赖“当前 K 线上下文”，本策略无 handlebar 循环，
+#:   实测恒返回空（value=null / rank=0 / NaN）；
+#: - `get_finance` / `get_smallcap` / `get_midcap` / `get_largecap` / `stockcode_in_rzrk`：
+#:   运行时 ContextInfo 对象没有这些方法；
+#: - `get_ETF_list`：QMT 自身实现调用未定义全局 `get_etf_list`，必失败；
+#: - `get_back_test_index` / `get_option_undl`：需要回测上下文或有效期权标的。
 READONLY_CTX_METHODS = (
     'get_close_price', 'get_last_close', 'get_market_data_ex_ori', 'subscribe_whole_quote',
-    'get_finance', 'get_raw_financial_data', 'get_float_caps', 'get_holder_num',
-    'get_smallcap', 'get_midcap', 'get_largecap',
-    'is_stock', 'is_future', 'is_fund', 'get_stock_type', 'get_ETF_list',
-    'get_option_undl', 'stockcode_in_rzrk',
+    'get_raw_financial_data', 'get_float_caps', 'get_holder_num',
+    'is_stock', 'is_future', 'is_fund', 'get_stock_type',
     'get_net_value', 'get_product_asset_value', 'get_product_share',
     'get_product_init_share',
-    'get_back_test_index', 'get_commission', 'get_slippage',
-    'load_stk_list', 'load_stk_vol_list', 'get_turn_over_rate',
+    'get_commission', 'get_slippage',
+    'load_stk_list', 'load_stk_vol_list',
 )
 
 

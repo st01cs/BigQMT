@@ -306,34 +306,6 @@ class QMTClient:
         )
 
     # ---- 只读查询：扩展数据 / 因子 / 标的判断 ----
-    def get_ext_data(self, extdataname: str, stockcode: str, deviation: int = 0) -> Dict:
-        return self._req(
-            "POST",
-            "/api/ext/ext_data",
-            json={"extdataname": extdataname, "stockcode": stockcode, "deviation": deviation},
-        )
-
-    def get_ext_data_rank(self, extdataname: str, stockcode: str, deviation: int = 0) -> Dict:
-        return self._req(
-            "POST",
-            "/api/ext/ext_data_rank",
-            json={"extdataname": extdataname, "stockcode": stockcode, "deviation": deviation},
-        )
-
-    def get_factor_value(self, factorname: str, stockcode: str, deviation: int = 0) -> Dict:
-        return self._req(
-            "POST",
-            "/api/ext/get_factor_value",
-            json={"factorname": factorname, "stockcode": stockcode, "deviation": deviation},
-        )
-
-    def get_factor_rank(self, factorname: str, stockcode: str, deviation: int = 0) -> Dict:
-        return self._req(
-            "POST",
-            "/api/ext/get_factor_rank",
-            json={"factorname": factorname, "stockcode": stockcode, "deviation": deviation},
-        )
-
     def is_last_bar(self) -> Dict:
         return self._req("GET", "/api/check/is_last_bar")
 

@@ -784,41 +784,6 @@ def get_financial_data(
     return {"timestamp": datetime.now().isoformat(), "data": result}
 
 
-@mcp.tool()
-def get_factor_data(
-    fieldList: str,
-    stockCode: str = '',
-    stockList: str = '',
-    startDate: str = '',
-    endDate: str = ''
-) -> Dict[str, Any]:
-    """
-    获取多因子数据
-    
-    Args:
-        fieldList: 因子字段列表
-        stockCode: 单个股票代码
-        stockList: 股票列表
-        startDate: 开始日期
-        endDate: 结束日期
-    
-    Returns:
-        多因子数据
-    """
-    client = get_client()
-    if stockCode:
-        result = client._req('POST', '/api/data/factor_data', json={
-            "fieldList": fieldList, "stockCode": stockCode,
-            "startDate": startDate, "endDate": endDate
-        })
-    else:
-        result = client._req('POST', '/api/data/factor_data', json={
-            "fieldList": fieldList, "stockList": stockList,
-            "startDate": startDate, "endDate": endDate
-        })
-    return {"timestamp": datetime.now().isoformat(), "data": result}
-
-
 # ===================================
 # MCP Tools - 数据查询类（期权数据）
 # ===================================
@@ -1372,86 +1337,6 @@ def get_account_status() -> Dict[str, Any]:
 
 
 @mcp.tool()
-def get_ext_data(extdataname: str, stockcode: str, deviation: int = 0) -> Dict[str, Any]:
-    """
-    获取扩展数据（EP 数据域）当前值
-
-    Args:
-        extdataname: 扩展数据名称
-        stockcode: 股票代码，如 '601899.SH'
-        deviation: 相对当前 K 线的偏移（0=当前，-1=上一根）
-
-    Returns:
-        扩展数据值
-    """
-    client = get_client()
-    return {
-        "timestamp": datetime.now().isoformat(),
-        "data": client.get_ext_data(extdataname, stockcode, deviation),
-    }
-
-
-@mcp.tool()
-def get_ext_data_rank(extdataname: str, stockcode: str, deviation: int = 0) -> Dict[str, Any]:
-    """
-    获取扩展数据在板块内的排名
-
-    Args:
-        extdataname: 扩展数据名称
-        stockcode: 股票代码
-        deviation: 相对当前 K 线的偏移
-
-    Returns:
-        排名结果
-    """
-    client = get_client()
-    return {
-        "timestamp": datetime.now().isoformat(),
-        "data": client.get_ext_data_rank(extdataname, stockcode, deviation),
-    }
-
-
-@mcp.tool()
-def get_factor_value(factorname: str, stockcode: str, deviation: int = 0) -> Dict[str, Any]:
-    """
-    获取因子当前值
-
-    Args:
-        factorname: 因子名称
-        stockcode: 股票代码
-        deviation: 相对当前 K 线的偏移
-
-    Returns:
-        因子值
-    """
-    client = get_client()
-    return {
-        "timestamp": datetime.now().isoformat(),
-        "data": client.get_factor_value(factorname, stockcode, deviation),
-    }
-
-
-@mcp.tool()
-def get_factor_rank(factorname: str, stockcode: str, deviation: int = 0) -> Dict[str, Any]:
-    """
-    获取因子在板块内的排名
-
-    Args:
-        factorname: 因子名称
-        stockcode: 股票代码
-        deviation: 相对当前 K 线的偏移
-
-    Returns:
-        排名结果
-    """
-    client = get_client()
-    return {
-        "timestamp": datetime.now().isoformat(),
-        "data": client.get_factor_rank(factorname, stockcode, deviation),
-    }
-
-
-@mcp.tool()
 def is_last_bar() -> Dict[str, Any]:
     """判断当前 K 线是否为当日最后一根（只读）"""
     client = get_client()
@@ -1788,17 +1673,6 @@ def subscribe_whole_quote(code_list: List[str] = None) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def get_finance(v_stock: str) -> Dict[str, Any]:
-    """
-    获取指定标的的财务数据（单股）
-
-    Args:
-        v_stock: 股票代码，如 '601899.SH'
-    """
-    return _ctx_query("get_finance", v_stock)
-
-
-@mcp.tool()
 def get_raw_financial_data(
     field_list: str,
     stock_list: str,
@@ -1857,24 +1731,6 @@ def get_holder_num(
 
 
 @mcp.tool()
-def get_smallcap() -> Dict[str, Any]:
-    """获取小盘股列表（只读）"""
-    return _ctx_query("get_smallcap")
-
-
-@mcp.tool()
-def get_midcap() -> Dict[str, Any]:
-    """获取中盘股列表（只读）"""
-    return _ctx_query("get_midcap")
-
-
-@mcp.tool()
-def get_largecap() -> Dict[str, Any]:
-    """获取大盘股列表（只读）"""
-    return _ctx_query("get_largecap")
-
-
-@mcp.tool()
 def is_stock(stock: str) -> Dict[str, Any]:
     """
     判断是否股票品种
@@ -1919,36 +1775,6 @@ def get_stock_type(stock: str) -> Dict[str, Any]:
 
 
 @mcp.tool()
-def get_ETF_list(market: str, stockcode: str, type_list: List[str] = None) -> Dict[str, Any]:
-    """
-    获取 ETF 列表
-
-    Args:
-        market: 市场，如 'SH'
-        stockcode: 代码或板块
-        type_list: 类型过滤列表
-    """
-    return _ctx_query("get_ETF_list", market, stockcode, _as_list(type_list))
-
-
-@mcp.tool()
-def get_option_undl(opt_code: str) -> Dict[str, Any]:
-    """
-    获取期权对应标的
-
-    Args:
-        opt_code: 期权代码
-    """
-    return _ctx_query("get_option_undl", opt_code)
-
-
-@mcp.tool()
-def stockcode_in_rzrk() -> Dict[str, Any]:
-    """获取当前标的的融资融券信息（只读）"""
-    return _ctx_query("stockcode_in_rzrk")
-
-
-@mcp.tool()
 def get_net_value(barpositon: int) -> Dict[str, Any]:
     """
     获取指定 K 线位置的净值（回测/绩效）
@@ -1957,12 +1783,6 @@ def get_net_value(barpositon: int) -> Dict[str, Any]:
         barpositon: K 线索引
     """
     return _ctx_query("get_net_value", barpositon)
-
-
-@mcp.tool()
-def get_back_test_index() -> Dict[str, Any]:
-    """获取回测基准指数（只读）"""
-    return _ctx_query("get_back_test_index")
 
 
 @mcp.tool()
@@ -2034,17 +1854,6 @@ def load_stk_vol_list(dirfile: str, namefile: str) -> Dict[str, Any]:
         namefile: 名称文件
     """
     return _ctx_query("load_stk_vol_list", dirfile, namefile)
-
-
-@mcp.tool()
-def get_turn_over_rate(stockcode: str) -> Dict[str, Any]:
-    """
-    获取个股换手率（ContextInfo 单股版）
-
-    Args:
-        stockcode: 股票代码，如 '601899.SH'
-    """
-    return _ctx_query("get_turn_over_rate", stockcode)
 
 
 # ===================================
