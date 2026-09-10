@@ -263,8 +263,10 @@ class CliMcpCommandTest(unittest.TestCase):
         buf = io.StringIO()
         with mock.patch("bigqmt.mcp.runner.build_runner", return_value=runner):
             with mock.patch("bigqmt.mcp.runner.probe_qmt_backend", return_value=probe):
-                with redirect_stdout(buf):
-                    code = cli.main(argv)
+                # 测试不得触碰真实端口：_free_port 单独有单测覆盖
+                with mock.patch.object(cli, "_free_port", return_value=([], [])):
+                    with redirect_stdout(buf):
+                        code = cli.main(argv)
         return code, buf.getvalue()
 
     def test_status(self):

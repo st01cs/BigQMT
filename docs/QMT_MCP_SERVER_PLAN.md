@@ -144,6 +144,27 @@ ContextInfo 113 个方法 / 后端 108 条路由 / MCP 56 个工具，缺口分�
 - 端口 10086 被上一个已停止策略的残留 socket 占用时，重启策略只会留下 WinError 10048
   traceback——`init()` 现在启动前预检端口并打印可执行指引。
 
+### 财报数据打通（2026-09-10 第四批）
+
+补齐本地财务数据后，接口仍返回空，最终定位为**字段名格式错误**：
+
+- 正确格式是 `表名.字段名`（`ASHAREINCOME.net_profit_incl_min_int_inc`），
+  中文写法 `利润表.净利润` 同样可用；表名共 5 个：`ASHAREBALANCESHEET`（资产负债表）、
+  `ASHAREINCOME`（利润表）、`ASHARECASHFLOW`（现金流量表）、`CAPITALSTRUCTURE`（股本表）、
+  `PERSHAREINDEX`（主要指标）。
+- 原仓库脚本里写的 `epspetters,netprofit,qoipetters,totaloperaterevenue` 是无效字段名，
+  这也是此前 `get_financial_data` 一直失败的原因。
+- 已在 MCP 侧新增资源 `qmt://info/finance_fields`（5 张表 / 65 个字段的中英对照），
+  并在 `get_financial_data`、`get_raw_financial_data` 的入参描述里写明格式。
+
+实测（601899.SH，report_type=report_time）：营业总收入 1941.78 亿、净利润 498.13 亿、
+归属净利润 391.70 亿、资产总计 5413.54 亿、负债合计 2682.67 亿、经营现金流净额 554.72 亿、
+基本每股收益 1.4730、每股净资产 7.5954、ROE 20.01%、销售毛利率 37.75%、
+资产负债率 49.55%、净利润同比 +73.90%。
+
+仍未打通：`get_factor_data` / `get_ext_data` / `get_factor_value`（EP 因子与扩展数据域
+在实盘上下文中仍返回空，需要另找命名规则或数据域）。
+
 ## 6. 验收标准
 
 - `python -m unittest discover -s tests -t .` 全绿，既有 118 个用例不回归。

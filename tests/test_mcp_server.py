@@ -6,6 +6,7 @@
 
 import asyncio
 import inspect
+import json
 import unittest
 
 try:
@@ -63,7 +64,11 @@ FORBIDDEN_TOOLS = {
     "cancel_task", "pause_task", "resume_task", "do_order",
 }
 
-EXPECTED_RESOURCES = {"qmt://info/version", "qmt://info/pr_types"}
+EXPECTED_RESOURCES = {
+    "qmt://info/version",
+    "qmt://info/pr_types",
+    "qmt://info/finance_fields",
+}
 
 
 class _RecordingClient:
@@ -136,6 +141,25 @@ class McpRegistryTest(unittest.TestCase):
         )
         self.assertEqual(sorted(schemas["get_trading_dates"]["properties"]),
                          ["count", "end_date", "market", "period", "start_date", "stockcode"])
+
+    def test_finance_fields_resource_lists_tables(self):
+        payload = json.loads(mcp_server.get_finance_fields_info())
+        tables = payload["tables"]
+        self.assertEqual(
+            sorted(tables),
+            ["ASHAREBALANCESHEET", "ASHARECASHFLOW", "ASHAREINCOME",
+             "CAPITALSTRUCTURE", "PERSHAREINDEX"],
+        )
+        self.assertEqual(
+            tables["ASHAREINCOME"]["字段"]["net_profit_incl_min_int_inc"], "净利润"
+        )
+        self.assertEqual(tables["CAPITALSTRUCTURE"]["字段"]["total_capital"], "总股本")
+
+    def test_financial_tool_docstring_documents_field_format(self):
+        tools = {tool.name: tool for tool in self._resolve(mcp_server.mcp.list_tools())}
+        description = tools["get_financial_data"].parameters["properties"]["fieldList"]["description"]
+        self.assertIn("表名.字段名", description)
+        self.assertIn("qmt://info/finance_fields", description)
 
 
 @unittest.skipUnless(HAS_FASTMCP, "需要 fastmcp（pip install -e .[mcp]）")

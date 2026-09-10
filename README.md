@@ -226,6 +226,9 @@ MCP 工具中整体移除，测试里有专门的防回归断言。
   `get_factor_value` 等）、股东与股本、分红、龙虎榜、换手率
 - 资金流：`get_north_finance_change`（北向资金，市场级）、`get_hkt_statistics` /
   `get_hkt_details`（个股港通统计与逐日明细）
+- 财报：`get_financial_data`（按交易日填充）/ `get_raw_financial_data`（原始报告期），
+  字段格式为 **`表名.字段名`**，如 `ASHAREINCOME.net_profit_incl_min_int_inc`（利润表.净利润），
+  中文写法 `利润表.净利润` 同样可用；完整对照表见资源 `qmt://info/finance_fields`
 - 标的判断：`is_stock` / `is_future` / `is_fund` / `is_suspended_stock` / `is_sector_stock` 等
 - 账户查询：持仓、资金、成交、委托、两融标的、打新数据、账号自检
 - 长尾只读接口通过后端白名单 `/api/data/query` 暴露，白名单见

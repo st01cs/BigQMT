@@ -88,6 +88,100 @@ _CONTEXT_FIELDS = (
     "universe",
 )
 
+#: 财报字段表（表名.字段名；来自迅投《模型资料 Python API 说明文档》4.3 财务数据字段对照表）
+FINANCE_FIELDS = {
+    "ASHAREBALANCESHEET": {
+        "表名": "资产负债表",
+        "字段": {
+            "tot_assets": "资产总计",
+            "total_current_assets": "流动资产合计",
+            "total_non_current_assets": "非流动资产合计",
+            "cash_equivalents": "货币资金",
+            "account_receivable": "应收账款",
+            "inventories": "存货",
+            "fix_assets": "固定资产",
+            "constru_in_process": "在建工程",
+            "intang_assets": "无形资产",
+            "goodwill": "商誉",
+            "tot_liab": "负债合计",
+            "total_current_liability": "流动负债合计",
+            "shortterm_loan": "短期借款",
+            "long_term_loans": "长期借款",
+            "accounts_payable": "应付账款",
+            "total_equity": "所有者权益合计",
+            "cap_stk": "实收资本(或股本)",
+            "undistributed_profit": "未分配利润",
+            "minority_int": "少数股东权益",
+            "m_timetag": "报告截止日(毫秒时间戳)",
+            "m_anntime": "公告日(毫秒时间戳)",
+        },
+    },
+    "ASHAREINCOME": {
+        "表名": "利润表",
+        "字段": {
+            "revenue": "营业总收入",
+            "revenue_inc": "营业收入",
+            "total_operating_cost": "营业总成本",
+            "total_expense": "营业成本",
+            "oper_profit": "营业利润",
+            "tot_profit": "利润总额",
+            "inc_tax": "所得税",
+            "net_profit_incl_min_int_inc": "净利润",
+            "net_profit_excl_min_int_inc": "归属净利润",
+            "less_gerl_admin_exp": "管理费用",
+            "sale_expense": "销售费用",
+            "financial_expense": "财务费用",
+            "plus_net_invest_inc": "投资收益",
+            "m_timetag": "报告截止日(毫秒时间戳)",
+            "m_anntime": "公告日(毫秒时间戳)",
+        },
+    },
+    "ASHARECASHFLOW": {
+        "表名": "现金流量表",
+        "字段": {
+            "net_cash_flows_oper_act": "经营活动产生的现金流量净额",
+            "stot_cash_inflows_oper_act": "经营活动现金流入小计",
+            "stot_cash_outflows_oper_act": "经营活动现金流出小计",
+            "net_cash_flows_inv_act": "投资活动产生的现金流量净额",
+            "net_cash_flows_fnc_act": "筹资活动产生的现金流量净额",
+            "goods_sale_and_service_render_cash": "销售商品、提供劳务收到的现金",
+            "cash_pay_beh_empl": "支付给职工以及为职工支付的现金",
+            "pay_all_typ_tax": "支付的各项税费",
+            "net_incr_cash_cash_equ": "现金及现金等价物净增加额",
+        },
+    },
+    "CAPITALSTRUCTURE": {
+        "表名": "股本表",
+        "字段": {
+            "total_capital": "总股本",
+            "circulating_capital": "已上市流通A股",
+            "restrict_circulating_capital": "限售流通股份",
+        },
+    },
+    "PERSHAREINDEX": {
+        "表名": "主要指标",
+        "字段": {
+            "s_fa_eps_basic": "基本每股收益",
+            "s_fa_eps_diluted": "稀释每股收益",
+            "s_fa_bps": "每股净资产",
+            "s_fa_ocfps": "每股经营活动现金流量",
+            "s_fa_undistributedps": "每股未分配利润",
+            "du_return_on_equity": "净资产收益率",
+            "equity_roe": "加权净资产收益率",
+            "net_roe": "摊薄净资产收益率",
+            "total_roe": "摊薄总资产收益率",
+            "sales_gross_profit": "销售毛利率",
+            "gross_profit": "毛利率",
+            "net_profit": "净利率",
+            "gear_ratio": "资产负债比率",
+            "inventory_turnover": "存货周转率",
+            "inc_revenue_rate": "主营收入同比增长",
+            "du_profit_rate": "净利润同比增长",
+            "inc_net_profit_rate": "归属净利润同比增长",
+        },
+    },
+}
+
 # ===================================
 # MCP Tools - 数据查询类（基础数据）
 # ===================================
@@ -664,7 +758,9 @@ def get_financial_data(
         code: 代码
         report_type: 报告类型
         barpos: K线索引
-        fieldList: 字段列表
+        fieldList: 字段列表，格式为「表名.字段名」，如 ASHAREINCOME.net_profit_incl_min_int_inc
+                   （利润表.净利润）；中文写法「利润表.净利润」同样可用。
+                   完整对照表见资源 qmt://info/finance_fields
         stockList: 股票列表
         startDate: 开始日期
         endDate: 结束日期
@@ -1715,7 +1811,8 @@ def get_raw_financial_data(
     获取原始财务数据（字段+股票+区间）
 
     Args:
-        field_list: 财务字段，逗号分隔
+        field_list: 财务字段，格式为「表名.字段名」，如 利润表.净利润；
+                    不按交易日填充（需填充时用 get_financial_data）
         stock_list: 股票列表，逗号分隔
         start_date / end_date: 日期区间，如 '20240101'
         report_type: report_time 或 announce_time
@@ -2001,6 +2098,25 @@ def get_price_types_info() -> str:
         "description": "prType 选价类型完整说明",
         "types": pr_types,
         "default": 11  # 指定价
+    }, ensure_ascii=False, indent=2)
+
+
+@mcp.resource("qmt://info/finance_fields")
+def get_finance_fields_info() -> str:
+    """获取财报字段对照表（表名.字段名）。
+
+    财务数据接口的 fieldList 必须写成 `表名.字段名`，例如
+    `ASHAREINCOME.net_profit_incl_min_int_inc`（利润表.净利润）；
+    中文字段名同样可用，如 `利润表.净利润`。
+    """
+    return json.dumps({
+        "description": "财报字段对照表：5 张表 + 迅投英文字段 + 中文释义",
+        "usage": (
+            "get_financial_data / get_raw_financial_data 的 fieldList 使用 "
+            "`表名.字段名`，逗号分隔；如 "
+            "CAPITALSTRUCTURE.total_capital,ASHAREINCOME.net_profit_incl_min_int_inc"
+        ),
+        "tables": FINANCE_FIELDS,
     }, ensure_ascii=False, indent=2)
 
 
