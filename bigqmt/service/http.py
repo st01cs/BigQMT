@@ -932,7 +932,7 @@ class GetIndustryNameOfStockHandler(BaseHandler):
         self.write(json.dumps({"industryType": industryType, "stockcode": stockcode, "industry_name": ret}, ensure_ascii=False))
 
 
-# ============= 7. 账户/订单查询 =============
+# ============= 4. 账户/订单查询 =============
 # get_trade_detail_data() - 获取交易明细(持仓/委托/成交/资金)
 class TradeDetailDataHandler(BaseHandler):
     def post(self):
@@ -1065,7 +1065,7 @@ class NewPurchaseLimitHandler(BaseHandler):
         self.write(json.dumps({"data": ret or {}}, ensure_ascii=False, default=str))
 
 
-# ============= 8. 引用函数 (ext_data) =============
+# ============= 5. 引用函数 (ext_data) =============
 # ext_data() - 获取扩展数据数值
 class ExtDataHandler(BaseHandler):
     def post(self):
@@ -1107,7 +1107,7 @@ class GetFactorRankHandler(BaseHandler):
         self.write(json.dumps({"factorname": factorname, "stockcode": stockcode, "rank": ret}, ensure_ascii=False))
 
 
-# ============= 9. 原有 Handler（保持兼容） =============
+# ============= 6. 原有 Handler（保持兼容） =============
 # get_trade_detail_data('position') - 查询持仓列表(封装格式)
 class HoldingHandler(BaseHandler):
     def post(self):
@@ -1187,7 +1187,6 @@ class OrderStatusHandler(BaseHandler):
             })
         self.write(json.dumps({"orders": rets}, ensure_ascii=False))
 
-# cancel() - 按股票+数量匹配规则撤单
 # sys: Python版本信息
 class PythonVersionHandler(BaseHandler):
     def get(self):

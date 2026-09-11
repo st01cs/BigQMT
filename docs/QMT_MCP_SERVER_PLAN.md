@@ -1,5 +1,7 @@
 # QMT MCP Server 迁移设计 Plan
 
+> 状态：已实施并验收（工具 88 个 / 资源 3 个），过程记录见文末「实施记录」。
+
 将 `QMT/mcp_server`（独立脚本形态）迁移进 BigQMT，成为 `bigqmt.mcp` 包，
 并与 `bigqmt.service.http`（QMT 侧 Tornado HTTP API）形成一条可验证的链路：
 
@@ -60,7 +62,8 @@ bigqmt/
 │  ├─ config.py       # McpConfig：host/port/token/qmt_base_url/auth_token/allow_remote
 │  ├─ client.py       # QMTClient + QMTApiError（requests 懒加载）
 │  ├─ auth.py         # BearerAuthMiddleware（纯 ASGI，无 fastmcp 版本耦合）
-│  ├─ server.py       # FastMCP 实例 + 56 tools + 2 resources
+│  ├─ runner.py       # MCP 服务进程管理（复用 StrategyRunner）
+│  ├─ server.py       # FastMCP 实例 + 88 只读 tools + 3 resources
 │  ├─ cli.py          # 参数解析 + 监听地址校验 + 启动
 │  └─ __main__.py     # python -m bigqmt.mcp
 └─ service/
@@ -105,7 +108,7 @@ bigqmt/
 ### 接口覆盖补齐与交易接口移除（2026-09-10 第二批）
 
 以 QMT 自带 `_PyContextInfo.py`（类 `__PyContext`）为基准做了三方比对：
-ContextInfo 113 个方法 / 后端 108 条路由 / MCP 56 个工具，缺口分两类处理后：
+（审计时）ContextInfo 113 个方法 / 后端 108 条路由 / MCP 56 个工具，缺口分两类处理后：
 
 - **A 类（后端已有路由，仅缺 MCP 工具）**：新增 21 个只读工具——
   策略上下文 `get_context_info`（一次读 10 个 context 属性）、`get_account_status`、

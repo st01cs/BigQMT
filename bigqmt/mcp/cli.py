@@ -37,7 +37,7 @@ ENV_KEYS = {
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="bigqmt-mcp",
-        description="BigQMT MCP 服务：把 QMT 行情/账户/交易能力暴露为 MCP 工具",
+        description="BigQMT MCP 服务：把 QMT 行情/财务/资金流/账户查询能力暴露为 MCP 工具（只读）",
     )
     parser.add_argument("--host", help="监听地址（默认 127.0.0.1；非回环地址需 --allow-remote）")
     parser.add_argument("--port", type=int, help="监听端口（默认 9000）")

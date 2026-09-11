@@ -2,8 +2,7 @@
 
 对应 docs/QMT_STARTUP_PLAN.md 第 5 节 _auto_login.py：
 - 原生 QMT 客户端 GUI 因券商/版本差异较大：优先用 pywinauto(UIA)
-  控件树定位密码框与登录按钮；定位不到时退化为「Tab + 回车」流程
-  （参考 EasyXT core/auto_login/qmt_login.py，但去掉 miniQMT 分支）；
+  控件树定位密码框与登录按钮；定位不到时退化为「Tab + 回车」流程；
 - 登录态判定以 xtquant.is_connected() 为准，pywinauto 窗口启发式兜底；
 - 自动登录失败 / 未配置密码时保留可见窗口，交由上层进入人工登录流程，
   避免无头盲操作把账户锁死。

@@ -78,8 +78,8 @@ class McpConfig:
     name: str = "QMT Trading Server"
     version: str = "1.0.0"
     instructions: str = (
-        "提供迅投 QMT 量化交易系统的完整功能：行情查询、账户管理、股票/期货/期权交易。"
-        "所有交易操作需确认后再执行。"
+        "提供迅投 QMT 的行情、财务/基本面、资金流与账户查询能力（只读，"
+        "不含下单/撤单等交易操作）。"
     )
     host: str = "127.0.0.1"
     port: int = 9000

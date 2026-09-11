@@ -3,7 +3,7 @@
 分层：
 - `config`：运行配置（监听地址/端口、QMT 后端地址与 Token、MCP 侧 Bearer 鉴权）；
 - `client`：QMT HTTP API 客户端（`QMTApiError` 统一表达后端失败）；
-- `server`：FastMCP 实例与 56 个工具 + 2 个资源（需要 `fastmcp`，见 extra `mcp`）；
+- `server`：FastMCP 实例与 88 个只读工具 + 3 个资源（需要 `fastmcp`，见 extra `mcp`）；
 - `cli` / `__main__`：命令行入口。
 
 设计约定：本包顶层不导入 `fastmcp`，因此 `import bigqmt.mcp` 在未安装 extra 时也可用；

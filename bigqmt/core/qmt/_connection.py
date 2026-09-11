@@ -4,7 +4,7 @@
 - 显式状态机：STOPPED / STARTING / LOGIN / READY / DISCONNECTED / ERROR / STOPPING；
 - READY = 进程存活 + 已登录（数据通道可用）；仅当 QMT_TRADING_REQUIRED=true
   时才额外要求交易通道就绪（P4）；
-- 心跳线程定期探活，支持自动重启（有次数上限），避免 EasyXT「30 秒缓存假阳性」问题。
+- 心跳线程定期探活，支持自动重启（有次数上限）；缓存就绪状态前必须复核，避免假阳性。
 
 与真实客户端交互通过 QmtDriver 抽象进行：
 - 默认驱动基于 P1 已落地的进程检测 + 可选 xtquant；

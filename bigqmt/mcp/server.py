@@ -2,8 +2,9 @@
 """BigQMT MCP Server - 基于 FastMCP 的迅投 QMT 量化交易服务。
 
 功能：把 QMT HTTP API（`bigqmt.service.http`，默认 127.0.0.1:10086）封装为 MCP 服务，
-暴露 56 个 tools + 2 个 resources，覆盖 A 股/期货/期权的行情查询、账户管理、交易执行，
-以及北向资金/港通资金流（get_north_finance_change、get_hkt_statistics、get_hkt_details）。
+暴露 88 个 tools + 3 个 resources（全部为只读能力），覆盖行情与 K 线、基础资料、财报、
+资金流（北向/港通）、股东与榜单、标的判断、账户查询；不含任何下单/撤单类接口。
+财报字段格式为「表名.字段名」，对照表见资源 qmt://info/finance_fields。
 
 迁移来源：QMT/mcp_server/qmt_mcp_server.py（保持工具与资源集合不变）。
 配置见 `bigqmt.mcp.config`，HTTP 客户端见 `bigqmt.mcp.client`。
@@ -1228,7 +1229,7 @@ def get_positions(account: str = 'stock') -> Dict[str, Any]:
 @mcp.tool()
 def get_available_funds(account: str = 'stock') -> Dict[str, Any]:
     """
-    获取可用资金（可下单金额）
+    获取账户可用资金
     
     Args:
         account: 账户类型

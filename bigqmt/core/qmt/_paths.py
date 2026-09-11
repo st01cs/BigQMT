@@ -1,6 +1,6 @@
 """原生 QMT 安装路径发现。
 
-参考 EasyXT `easy_xt/qmt_paths.py`，但仅面向原生 QMT（完整版客户端）：
+仅面向原生 QMT（完整版客户端）：
 - 以安装目录下存在 `userdata_mini` / `userdata` 子目录为识别特征；
 - 已知可执行文件名仅作辅助发现，最终以配置（QMT_EXE_PATH）为准；
 - 磁盘扫描限定深度并按关键词剪枝，控制耗时。
