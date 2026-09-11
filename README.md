@@ -35,41 +35,143 @@
 
 - Windows（QMT 客户端仅支持 Windows）
 - 已安装原生 QMT（完整版）客户端，如 `国金证券QMT交易端`
-- Python 3.10+（MCP 服务依赖 `fastmcp 4.x`，其要求 `>=3.10`）
+- [uv](https://docs.astral.sh/uv/)（用于管理 Python 环境与依赖）
+- Python 3.10+（uv 会按需下载；MCP 服务依赖 `fastmcp 4.x`，要求 `>=3.10`）
 - 运行时依赖：`xtquant`（随 QMT 客户端/Python 环境提供，见下文"依赖说明"）
 - GUI 自动登录（可选，强烈建议）：`pywinauto`、`pyautogui`
 
 ### 依赖说明
 
-`xtquant` 不是 PyPI 包，需从 QMT 客户端环境获取（QMT 安装目录或券商提供的完整版），
-使其可 `import xtquant` 即可。GUI 自动登录依赖可随项目一起安装：
+- `xtquant` **不是 PyPI 包**，需从 QMT 客户端环境获取（QMT 安装目录或券商提供的完整版），
+  使其可 `import xtquant` 即可；
+- 其余依赖按用途通过 extras 安装：`mcp`（MCP 服务：fastmcp + requests）、
+  `auto_login`（GUI 自动登录：pywinauto + pyautogui）、`dev`（pytest）。
 
-```bash
-pip install "bigqmt[auto_login]"
+## 快速开始（uv 全流程）
 
-# 可选：MCP 服务依赖（fastmcp + requests）
-pip install "bigqmt[mcp]"
+从零到「MCP 服务可用」的完整步骤，全程用 uv 管理 Python 环境。
+
+### 1. 安装 uv
+
+```powershell
+# 官方安装脚本
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# 或已有 Python/pipx
+pip install uv
+
+uv --version
 ```
 
-## 安装
+### 2. 克隆代码
 
-```bash
+```powershell
 git clone git@github.com:st01cs/BigQMT.git
 cd BigQMT
-
-python -m venv .venv
-.\\.venv\\Scripts\\Activate.ps1        # PowerShell
-pip install -e .
-
-# 可选：GUI 自动登录依赖
-pip install -e ".[auto_login]"
-
-# 可选：MCP 服务依赖
-pip install -e ".[mcp]"
-
-# 可选：开发/测试依赖（pytest 等）
-pip install -e ".[dev]"
 ```
+
+### 3. 创建环境并安装依赖
+
+推荐用 `uv sync`：它会按需下载 Python、创建 `.venv`、生成 `uv.lock`，并以 editable
+方式安装本项目与所选 extras。
+
+```powershell
+# 按需选择 extra：要用 MCP 必须带 mcp
+uv sync --python 3.12 --extra mcp --extra auto_login --extra dev
+
+# 只要 MCP 也可以
+uv sync --python 3.12 --extra mcp
+```
+
+- `.venv` 由 uv 托管，**不必手动 activate**；
+- `uv.lock` 建议一并提交，保证环境可复现；
+- 后续命令统一用 `.\.venv\Scripts\python.exe`（等价写法：`uv run python ...`）。
+
+<details>
+<summary>不想用 uv sync？手动指定环境也可以</summary>
+
+```powershell
+uv venv --python 3.12 .venv
+uv pip install --python .venv -e ".[mcp,auto_login,dev]"
+```
+
+</details>
+
+### 4. 校验安装
+
+```powershell
+.\.venv\Scripts\python.exe -c "import bigqmt, fastmcp, dotenv; print('ok')"
+.\.venv\Scripts\python.exe -m bigqmt.core.qmt --help
+```
+
+### 5. 配置 `.env`
+
+```powershell
+copy .env.example .env
+```
+
+至少补齐 `QMT_EXE_PATH`、`QMT_USERDATA_PATH`、`QMT_ACCOUNT_ID`（字段含义见下文「配置 `.env`」）。
+
+### 6. 部署 QMT 侧服务脚本
+
+MCP 工具的数据都来自跑在 QMT 内的 `bigqmt/service/http.py`（Tornado API，默认监听 10086）。
+它必须**粘贴进 QMT 策略编辑器**运行，所以先生成一份纯 ASCII 版本，避免编辑器转码报
+`SyntaxError: (unicode error)`：
+
+```powershell
+.\.venv\Scripts\python.exe scripts\ascii_safe_source.py bigqmt\service\http.py --encoding ascii
+# 产物：dist\http_ascii.py
+```
+
+在 QMT 客户端新建策略，**整段粘贴 `dist\http_ascii.py` 的内容**，保存并运行。
+再让 QMT 进程能读到资金账号（脚本启动自检会校验并打印结果）：
+
+```powershell
+[Environment]::SetEnvironmentVariable("QMT_ACCOUNT_ID", "<你的资金账号>", "User")
+```
+
+> 设完环境变量要**完全重启 QMT 客户端**才生效（进程启动时继承环境）。
+> 也可通过 `POST /api/sys/account_status`（带 `X-Token`）查看账号是否已配置且连通。
+
+### 7. 启动 QMT 客户端
+
+```powershell
+# 拉起客户端并等待 READY（进程存活 + 已登录 + 数据连通）
+.\.venv\Scripts\python.exe -m bigqmt.core.qmt start
+
+# 仅查看状态
+.\.venv\Scripts\python.exe -m bigqmt.core.qmt status
+```
+
+未配置 `QMT_PASSWORD` 时会保留窗口，等待你手动登录（配合 `--timeout` 控制等待时长）。
+
+### 8. 启动 MCP 服务并验证
+
+```powershell
+# 后台启动（默认 127.0.0.1:9000），交给 BigQMT 托管：PID 文件 + 启动确认 + 崩溃重启 + 日志
+.\.venv\Scripts\python.exe -m bigqmt.core.qmt mcp start
+
+# 查看状态（含 QMT 后端是否可达）
+.\.venv\Scripts\python.exe -m bigqmt.core.qmt mcp status
+
+# 端到端验证：握手 + 工具/资源清单 + 抽查调用
+.\.venv\Scripts\python.exe scripts\verify_mcp_endpoint.py
+```
+
+`mcp status` 出现 `qmt api ok : True`、验证脚本出现 `tools/list: 88`，即启动完成。
+日志与 PID：`logs/mcp_server.log`、`logs/mcp_server.pid`。
+
+启动过程中的常见问题：
+
+| 现象 | 处理 |
+| --- | --- |
+| `qmt api ok : False` | QMT 未登录，或第 6 步的策略没在运行（确认 10086 端口有响应） |
+| 启动策略报 `WinError 10048` | 端口被上一个未完全退出的策略占用；完全退出并重启 QMT 客户端，且只运行一个实例 |
+| 账户/资金类工具返回 503 | `QMT_ACCOUNT_ID` 没被 QMT 进程读到，检查环境变量作用域并重启客户端 |
+| 工具调用报 `（unicode error）` | 粘贴的内容被编辑器转码，改用第 6 步生成 `dist\http_ascii.py` 粘贴 |
+
+> 不想用 BigQMT 托管时，也可以直接 `python -m bigqmt.mcp`（等价于 `bigqmt-mcp` 命令）。
+> 也可以用 pip 代替 uv：把 `uv pip install --python .venv -e "..."` 换成 `pip install -e "..."`。
 
 ## 配置 `.env`
 
@@ -111,7 +213,12 @@ MCP 服务配置（详见 `docs/QMT_MCP_SERVER_PLAN.md`）：
 | `QMT_HTTP_TOKEN` | 调用 QMT HTTP API 的 `X-Token` | `123456789` |
 | `QMT_MCP_REQUEST_TIMEOUT` | 调用 QMT 后端超时（秒） | `10` |
 
-## 快速使用
+## 常用用法
+
+下面是与「快速开始」互补的日常用法。
+
+> 为简洁起见，示例里的 `python` 均指「快速开始」第 3 步创建的解释器
+> `.\.venv\Scripts\python.exe`；已激活虚拟环境时直接写 `python` 亦可。
 
 ### 方式一：CLI
 
@@ -198,15 +305,15 @@ stock_list = xtdata.get_stock_list_in_sector("沪深A股")
 
 ```bash
 # 全量单元测试（默认跳过真实环境 E2E）
-python -m unittest discover -s tests -t .
+.\.venv\Scripts\python.exe -m unittest discover -s tests -t .
 
 # 真实 QMT 环境 E2E（需已配置 .env 且装有 pywinauto/pyautogui）
 $env:BIGQMT_QMT_E2E = "1"
-python -m unittest tests.test_auto_login_e2e -v
+.\.venv\Scripts\python.exe -m unittest tests.test_auto_login_e2e -v
 
 # MCP 协议级 E2E（需 MCP 服务已在运行）
 $env:QMT_MCP_E2E = "1"
-python -m unittest tests.test_mcp_protocol_e2e -v
+.\.venv\Scripts\python.exe -m unittest tests.test_mcp_protocol_e2e -v
 ```
 
 > 真实环境验收记录见 `docs/QMT_STARTUP_PLAN.md`。
@@ -222,27 +329,33 @@ MCP 工具中整体移除，测试里有专门的防回归断言。
 
 能力分组：
 
-- 行情/行情订阅、财务与因子（`get_finance`、`get_raw_financial_data`、`get_ext_data`、
-  `get_factor_value` 等）、股东与股本、分红、龙虎榜、换手率
-- 资金流：`get_north_finance_change`（北向资金，市场级）、`get_hkt_statistics` /
-  `get_hkt_details`（个股港通统计与逐日明细）
+- 行情与 K 线：实时分笔、扩展行情、历史行情、本地行情、交易日历、逐笔/全推订阅
+- 基础资料：名称、合约详情、上市日期、总股本与流通股本、流通市值、股东户数、复权因子、
+  行业与板块成份
 - 财报：`get_financial_data`（按交易日填充）/ `get_raw_financial_data`（原始报告期），
   字段格式为 **`表名.字段名`**，如 `ASHAREINCOME.net_profit_incl_min_int_inc`（利润表.净利润），
   中文写法 `利润表.净利润` 同样可用；完整对照表见资源 `qmt://info/finance_fields`
+- 资金流：`get_north_finance_change`（北向资金，市场级）、`get_hkt_statistics` /
+  `get_hkt_details`（个股港通统计与逐日明细）
+- 股东与榜单：十大股东、龙虎榜（上榜日才有数据）、多股区间换手率
 - 标的判断：`is_stock` / `is_future` / `is_fund` / `is_suspended_stock` / `is_sector_stock` 等
 - 账户查询：持仓、资金、成交、委托、两融标的、打新数据、账号自检
 - 长尾只读接口通过后端白名单 `/api/data/query` 暴露，白名单见
   `bigqmt/service/http.py` 的 `READONLY_CTX_METHODS`
 
+> 已移除：需要"当前 K 线上下文"的扩展数据/因子接口（本策略没有 handlebar 循环）、
+> 运行时不存在的方法、以及全部交易类接口。移除清单与恢复路径见
+> `docs/QMT_MCP_SERVER_PLAN.md`。
+
 ```bash
 # 默认仅本机可访问：http://127.0.0.1:9000/mcp
-python -m bigqmt.mcp
+.\.venv\Scripts\python.exe -m bigqmt.mcp
 
 # 指定端口 / QMT 后端地址
-python -m bigqmt.mcp --port 9100 --qmt-url http://127.0.0.1:10086
+.\.venv\Scripts\python.exe -m bigqmt.mcp --port 9100 --qmt-url http://127.0.0.1:10086
 
 # 需要局域网访问时：必须显式声明，并强烈建议启用 Bearer 鉴权
-python -m bigqmt.mcp --host 0.0.0.0 --allow-remote --auth-token <your-token>
+.\.venv\Scripts\python.exe -m bigqmt.mcp --host 0.0.0.0 --allow-remote --auth-token <your-token>
 ```
 
 ### 作为受管进程运行（推荐）
@@ -250,13 +363,13 @@ python -m bigqmt.mcp --host 0.0.0.0 --allow-remote --auth-token <your-token>
 MCP 服务可交给 BigQMT 的进程管理（复用策略运行器：PID 文件 + 启动确认 + 崩溃重启 + 日志）：
 
 ```bash
-# 启动（后台常驻；默认使用当前解释器，可用 --python 指定带 fastmcp 的解释器）
-python -m bigqmt.core.qmt mcp start --python "D:\path\to\python.exe"
+# 启动（后台常驻，默认使用当前解释器）
+.\.venv\Scripts\python.exe -m bigqmt.core.qmt mcp start
 
 # 查看状态 / 停止 / 重启
-python -m bigqmt.core.qmt mcp status
-python -m bigqmt.core.qmt mcp stop
-python -m bigqmt.core.qmt mcp restart
+.\.venv\Scripts\python.exe -m bigqmt.core.qmt mcp status
+.\.venv\Scripts\python.exe -m bigqmt.core.qmt mcp stop
+.\.venv\Scripts\python.exe -m bigqmt.core.qmt mcp restart
 ```
 
 日志与 PID：`logs/mcp_server.log`、`logs/mcp_server.pid`。
@@ -276,7 +389,9 @@ Bearer token 通过 `--auth-token` 写入子进程环境变量，不会出现在
   该脚本运行在 QMT 内，改动后需要在 QMT 里**重新加载/重启该策略**才生效；
   并确认环境变量对 QMT 进程可见（系统环境变量或 QMT 策略运行环境）。
 - 工具调用失败会以 `isError=true` 返回，错误正文包含后端 URL 与状态码。
-- 手工验证脚本：`python scripts/verify_mcp_endpoint.py --url http://127.0.0.1:9000/mcp`。
+- 手工验证脚本：`.\.venv\Scripts\python.exe scripts\verify_mcp_endpoint.py --url http://127.0.0.1:9000/mcp`。
+- 修改 `bigqmt/service/http.py` 后要重新生成部署产物：
+  `.\.venv\Scripts\python.exe scripts\ascii_safe_source.py bigqmt\service\http.py --encoding ascii`。
 
 ## 项目结构
 
@@ -289,7 +404,7 @@ BigQMT/
 │  │  ├─ client.py           # QMT HTTP 客户端 + QMTApiError
 │  │  ├─ auth.py             # Bearer 鉴权中间件
 │  │  ├─ runner.py           # MCP 服务进程管理（复用 StrategyRunner）
-│  │  ├─ server.py           # 56 tools + 2 resources
+│  │  ├─ server.py           # 88 tools + 3 resources
 │  │  └─ cli.py / __main__.py
 │  ├─ service/
 │  │  └─ http.py             # 部署到 QMT 内的 Tornado API（Py3.6）
@@ -301,7 +416,9 @@ BigQMT/
 │     ├─ _strategy.py        # StrategySpec / StrategyRunner / StrategySupervisor
 │     ├─ cli.py / __main__.py
 ├─ tests/                    # unittest 测试 + E2E（默认 skip）
-├─ scripts/verify_mcp_endpoint.py     # MCP 端点手工验证
+├─ scripts/
+│  ├─ verify_mcp_endpoint.py          # MCP 端点手工验证
+│  └─ ascii_safe_source.py            # 生成可安全粘贴进 QMT 的纯 ASCII 源码
 ├─ docs/QMT_STARTUP_PLAN.md  # 设计 Plan 与验收记录
 ├─ docs/QMT_STRATEGY_RUNNER_PLAN.md  # 策略自动运行设计 Plan 与验收记录
 ├─ docs/QMT_MCP_SERVER_PLAN.md       # MCP 迁移 Plan 与验收记录
